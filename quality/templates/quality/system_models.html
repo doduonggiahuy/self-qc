@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}System · Models{% endblock %}
+{% block head %}
+<style>
+.model-source-field{display:flex;flex-direction:column;gap:7px}
+.model-source-field input,.model-source-field select{width:100%}
+.model-source-field[hidden]{display:none}
+.toggle-field{display:flex;align-items:center;gap:11px;cursor:pointer;width:max-content;max-width:100%;font-weight:650}
+.toggle-field input{appearance:none;width:38px;height:22px;padding:0;margin:0;border-radius:999px;background:#334155;border:1px solid #526078;position:relative;flex:0 0 auto;cursor:pointer}
+.toggle-field input:before{content:'';position:absolute;width:16px;height:16px;left:2px;top:2px;border-radius:50%;background:#cbd5e1;transition:transform .16s ease,background .16s ease}
+.toggle-field input:checked{background:#16803b;border-color:#22c55e}
+.toggle-field input:checked:before{transform:translateX(16px);background:#fff}
+.toggle-field input:focus-visible{outline:3px solid #38bdf855;outline-offset:2px}
+.model-form-errors{margin:0}
+</style>
+{% endblock %}
+{% block body %}
+<main class="container">
+  <div class="page-head"><div><h1 class="section-title">System · Models</h1><p class="section-copy">Upload file, pull Hugging Face repo hoặc pull Ollama model.</p></div></div>
+  {% if messages %}<div class="card messages">{% for message in messages %}<div>{{ message }}</div>{% endfor %}</div>{% endif %}
+  <div class="grid-two">
+    <section class="card">
+      <h2>Models</h2>
+      <table><thead><tr><th>Model</th><th>Source</th><th>Status</th><th></th></tr></thead><tbody>
+      {% for model in models %}<tr><td><b>{{ model.name }}</b></td><td>{{ model.get_provider_display }}<br><span class="muted">{{ model.source|default:model.artifact_name }}</span></td><td>{{ model.status }} · {{ model.enabled|yesno:"Enabled,Disabled" }}{% if model.validation_error %}<br><span class="errorlist">{{ model.validation_error }}</span>{% endif %}</td><td><a href="{% url 'quality-system-model-edit' model.pk %}">Sửa</a><form method="post" action="{% url 'quality-system-model-delete' model.pk %}" onsubmit="return confirm('Xóa model?')">{% csrf_token %}<button class="danger">Xóa</button></form></td></tr>
+      {% empty %}<tr><td colspan="4">Chưa có model.</td></tr>{% endfor %}
+      </tbody></table>
+    </section>
+    <section class="card">
+      <h2>Thêm model</h2>
+      <form method="post" enctype="multipart/form-data" class="stack" id="modelForm">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+        <div class="model-source-field">
+          <label for="{{ form.provider.id_for_label }}">{{ form.provider.label }}</label>
+          {{ form.provider }}{{ form.provider.errors }}
+        </div>
+        <div class="model-source-field" id="localModelField">
+          <label for="{{ form.model_file.id_for_label }}">{{ form.model_file.label }}</label>
+          {{ form.model_file }}{{ form.model_file.errors }}
+        </div>
+        <div class="model-source-field" id="remoteModelField">
+          <label for="{{ form.source.id_for_label }}" id="remoteModelLabel">Model ID</label>
+          {{ form.source }}{{ form.source.errors }}
+          <span class="help" id="remoteModelHelp"></span>
+        </div>
+        <label class="toggle-field" for="{{ form.enabled.id_for_label }}">{{ form.enabled }}<span>{{ form.enabled.label }}</span></label>
+        {{ form.enabled.errors }}
+        <button class="primary">Thêm và chuẩn bị model</button>
+      </form>
+    </section>
+  </div>
+</main>
+<script>
+const provider=document.getElementById('{{ form.provider.id_for_label }}');
+const localField=document.getElementById('localModelField');
+const remoteField=document.getElementById('remoteModelField');
+const remoteLabel=document.getElementById('remoteModelLabel');
+const remoteHelp=document.getElementById('remoteModelHelp');
+function updateSourceFields(){
+  const isLocal=provider.value==='LOCAL';
+  localField.hidden=!isLocal;
+  remoteField.hidden=isLocal;
+  if(!isLocal){
+    const huggingFace=provider.value==='HUGGING_FACE';
+    remoteLabel.textContent=huggingFace?'Hugging Face repo ID':'Ollama model tag';
+    remoteHelp.textContent=huggingFace?'Ví dụ: microsoft/Florence-2-base-ft':'Ví dụ: qwen3-vl:4b';
+  }
+}
+provider.addEventListener('change',updateSourceFields);
+updateSourceFields();
+</script>
+{% endblock %}

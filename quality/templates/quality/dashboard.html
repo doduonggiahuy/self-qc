@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Quality · {{ project.name }}{% endblock %}
+{% block body %}
+<main class="container">
+  <div class="page-head"><div><h1 class="section-title">Quality Lab · {{ project.name }}</h1><p class="section-copy">Freeze GT, tạo test case và chạy evaluator qua cùng một audit trail.</p></div><a class="button-link" href="{% url 'annotate' project.pk %}">Mở annotator</a></div>
+  {% if messages %}<div class="card messages">{% for message in messages %}<div>{{ message }}</div>{% endfor %}</div>{% endif %}
+  <div class="grid-two">
+    <section class="card"><h2>1. Ground Truth releases</h2><p class="muted">Snapshot bất biến của các bbox APPROVED/EDITED hiện tại.</p><form method="post" action="{% url 'quality-freeze-gt' project.pk %}">{% csrf_token %}<button class="primary">Freeze release mới</button></form>
+      <table><thead><tr><th>Version</th><th>Coverage</th><th>Items</th><th>Created</th></tr></thead><tbody>{% for release in releases %}<tr><td>v{{ release.version }} · {{ release.status }}</td><td>{{ release.coverage }}</td><td>{{ release.annotation_count }}</td><td>{{ release.created_at|date:"Y-m-d H:i" }}</td></tr>{% empty %}<tr><td colspan="4" class="muted">Chưa có release.</td></tr>{% endfor %}</tbody></table>
+    </section>
+    <section class="card"><h2>2. Tạo test case</h2><p class="muted">Vertical slice đầu tiên kiểm tra tính sẵn sàng của GT release.</p><form method="post" action="{% url 'quality-create-case' project.pk %}" class="stack">{% csrf_token %}{{ form.as_p }}<button class="primary">Tạo GT validation test</button></form></section>
+  </div>
+  <section class="card"><h2>3. Test cases</h2><table><thead><tr><th>Name</th><th>Kind</th><th>GT</th><th>Assertions</th><th></th></tr></thead><tbody>{% for case in test_cases %}<tr><td>{{ case.name }} v{{ case.version }}</td><td>{{ case.get_kind_display }}</td><td>v{{ case.ground_truth_release.version }}</td><td><code>{{ case.assertions }}</code></td><td><form method="post" action="{% url 'quality-run-case' project.pk case.pk %}">{% csrf_token %}<button class="secondary">Run</button></form></td></tr>{% empty %}<tr><td colspan="5" class="muted">Chưa có test case.</td></tr>{% endfor %}</tbody></table></section>
+  <section class="card"><h2>Recent runs</h2><table><thead><tr><th>Run</th><th>Test case</th><th>Status</th><th>Correlation ID</th><th>Created</th></tr></thead><tbody>{% for run in runs %}<tr><td><a href="{% url 'quality-run-detail' project.pk run.pk %}">#{{ run.pk }}</a></td><td>{{ run.test_case }}</td><td><span class="status status-{{ run.status|lower }}">{{ run.status }}</span></td><td><code>{{ run.correlation_id }}</code></td><td>{{ run.created_at|date:"Y-m-d H:i" }}</td></tr>{% empty %}<tr><td colspan="5" class="muted">Chưa có run.</td></tr>{% endfor %}</tbody></table></section>
+</main>
+{% endblock %}
+

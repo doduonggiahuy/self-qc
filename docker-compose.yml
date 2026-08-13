@@ -1,0 +1,49 @@
+name: model-qc
+
+services:
+  web:
+    build: .
+    container_name: model_qc_web
+    entrypoint: ["/bin/sh", "/app/entrypoint.sh"]
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+    restart: unless-stopped
+    ports:
+      - "${QC_PORT:-8090}:8000"
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-only-change-me}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-true}
+      YOLO_WORLD_MODEL: ${YOLO_WORLD_MODEL:-yolov8s-worldv2.pt}
+      YOLO_DEVICE: ${YOLO_DEVICE:-0}
+      YOLO_CONFIDENCE: ${YOLO_CONFIDENCE:-0.25}
+      QC_MODEL_ROOT: /app/models
+      OLLAMA_URL: http://ollama:11434
+    volumes:
+      - .:/app
+      - qc_data:/app/data
+      - qc_media:/app/media
+      - qc_models:/app/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: model_qc_ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+
+volumes:
+  qc_data:
+  qc_media:
+  qc_models:
+  ollama_models:

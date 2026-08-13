@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Run #{{ run.pk }}{% endblock %}
+{% block body %}
+<main class="container narrow"><p><a href="{% url 'quality-dashboard' project.pk %}">← Quality Lab</a></p>
+  <section class="card"><div class="page-head"><div><h1 class="section-title">Run #{{ run.pk }}</h1><p class="section-copy">{{ run.test_case }}</p></div><span class="status status-{{ run.status|lower }}">{{ run.status }}</span></div><dl class="details"><dt>Correlation ID</dt><dd><code>{{ run.correlation_id }}</code></dd><dt>Started</dt><dd>{{ run.started_at }}</dd><dt>Finished</dt><dd>{{ run.finished_at }}</dd></dl>{% if run.error %}<div class="error-box">{{ run.error }}</div>{% endif %}</section>
+  <section class="card"><h2>Immutable input snapshot</h2><pre>{{ run.input_snapshot }}</pre></section><section class="card"><h2>Metrics</h2><pre>{{ run.metrics }}</pre></section><section class="card"><h2>Assertions</h2><pre>{{ run.assertion_results }}</pre></section>
+</main>
+{% endblock %}
+

@@ -1,0 +1,17 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+db.sqlite3
+media/
+staticfiles/
+reports/
+# Runtime model registry and downloaded weights are stored in Docker volumes.
+models/
+qc_models/
+*.pt
+*.pth
+*.onnx
+*.engine
+*.torchscript
+*.safetensors
