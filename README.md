@@ -24,7 +24,7 @@ docker compose exec web python manage.py createsuperuser
 
 Open <http://localhost:8090>, sign in, create a project and upload a video.
 The first YOLO-World inference downloads the configured model unless a matching
-`.pt` file already exists in the `qc_models` volume.
+`.pt` file already exists in the `qc_storage` volume under `models`.
 
 ## Current MVP
 

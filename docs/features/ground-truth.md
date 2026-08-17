@@ -2,6 +2,10 @@
 
 **Status:** Bounding-box workflow implemented.
 
+Các thao tác UI, inference, CRUD class, frame và bbox được mô tả tại
+[Annotation Studio](annotation-studio.md). File này tập trung vào vòng đời Ground
+Truth release.
+
 YOLO-World tạo `PREDICTED` proposal. Người dùng chỉnh hoặc duyệt thành
 `APPROVED`, `REJECTED`, `EDITED`. Chỉ `APPROVED` và `EDITED` được export hoặc
 freeze vào GT release.
@@ -16,4 +20,3 @@ Freeze sẽ:
 
 Sửa bbox nguồn sau đó không thay đổi item trong release cũ. Temporal segment,
 keypoint, mask và reviewer approval workflow vẫn là planned.
-

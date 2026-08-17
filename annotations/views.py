@@ -2,6 +2,7 @@ import hashlib
 import io
 import json
 import logging
+import os
 
 import cv2
 from django.contrib.auth.decorators import login_required
@@ -58,6 +59,14 @@ def project_list(request):
     if not (request.user.has_perm("annotations.edit_all_projects") or request.user.is_superuser):
         projects = projects.filter(owner=request.user)
     return render(request, "annotations/project_list.html", {"projects": projects})
+
+
+@login_required
+def ground_truth_list(request):
+    videos = Project.objects.select_related("client_project", "owner").prefetch_related("classes", "rules")
+    if not (request.user.has_perm("annotations.edit_all_projects") or request.user.is_superuser):
+        videos = videos.filter(owner=request.user)
+    return render(request, "annotations/ground_truth_list.html", {"videos": videos})
 
 
 @login_required
@@ -182,14 +191,23 @@ def infer_frame(request, pk, frame_index):
     classes = list(project.classes.filter(enabled=True))
     if not classes:
         return JsonResponse({"error": "Không có class nào được bật để inference."}, status=400)
+    if os.getenv("INFERENCE_EXECUTION") == "worker":
+        try:
+            preference = UserInferencePreference.objects.filter(user=request.user).first()
+            from quality.tasks import infer_annotation_frame
+            payload = infer_annotation_frame.delay(project.pk, frame_index, preference.model_id if preference else None).get(timeout=3600)
+            return JsonResponse(payload)
+        except Exception as exc:
+            logger.exception("Worker inference failed for project=%s frame=%s", project.pk, frame_index)
+            return JsonResponse({"error": f"Inference worker thất bại: {exc}"}, status=500)
     try:
         frame = read_frame(project.video.path, frame_index)
         preference = UserInferencePreference.objects.filter(user=request.user).select_related("model").first()
         selected_model = preference.model if preference and preference.model and preference.model.is_selectable else None
         proposals = predict(frame, classes, selected_model)
     except Exception as exc:
-        logger.exception("YOLO-World inference failed for project=%s frame=%s", project.pk, frame_index)
-        return JsonResponse({"error": f"YOLO-World inference thất bại: {exc}"}, status=500)
+        logger.exception("Inference failed for project=%s frame=%s", project.pk, frame_index)
+        return JsonResponse({"error": f"Inference thất bại: {exc}"}, status=500)
     # Preserve all human-reviewed GT; only replace unreviewed proposals.
     project.boxes.filter(frame_index=frame_index, review_status="PREDICTED").delete()
     created = [BoxAnnotation.objects.create(

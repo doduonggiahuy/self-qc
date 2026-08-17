@@ -2,15 +2,24 @@ import os
 import threading
 
 import cv2
-import base64
-import json
-import urllib.request
 from PIL import Image
-from django.conf import settings
 
 
 _LOCK = threading.Lock()
 _CACHE = {}
+
+
+def _model_inputs_on_device(inputs, model):
+    """Move processor tensors without mixing float32 inputs with a fp16 GPU model."""
+    import torch
+
+    moved = {}
+    for key, value in inputs.items():
+        if torch.is_floating_point(value):
+            moved[key] = value.to(device=model.device, dtype=model.dtype)
+        else:
+            moved[key] = value.to(device=model.device)
+    return moved
 
 
 def predict_with_model(image, label_classes, inference_model=None):
@@ -21,7 +30,6 @@ def predict_with_model(image, label_classes, inference_model=None):
         "quality.adapters.YoloWorldAdapter": YoloWorldAdapter,
         "quality.adapters.Florence2Adapter": Florence2Adapter,
         "quality.adapters.GroundingDinoAdapter": GroundingDinoAdapter,
-        "quality.adapters.OllamaVisionAdapter": OllamaVisionAdapter,
     }
     adapter = adapters.get(inference_model.adapter)
     if adapter is None:
@@ -91,7 +99,7 @@ class Florence2Adapter:
                 prompt = label_class.prompt.strip() or label_class.name
                 task = "<CAPTION_TO_PHRASE_GROUNDING>"
                 inputs = processor(text=task + prompt, images=pil_image, return_tensors="pt")
-                inputs = {key: value.to(model.device) for key, value in inputs.items()}
+                inputs = _model_inputs_on_device(inputs, model)
                 generated = model.generate(**inputs, max_new_tokens=1024, num_beams=3, do_sample=False)
                 text = processor.batch_decode(generated, skip_special_tokens=False)[0]
                 parsed = processor.post_process_generation(text, task=task, image_size=pil_image.size).get(task, {})
@@ -111,9 +119,11 @@ class GroundingDinoAdapter:
         key = ("grounding-dino", self.reference)
         if key not in _CACHE:
             processor = AutoProcessor.from_pretrained(self.reference, local_files_only=True)
+            # The Transformers Grounding DINO implementation creates internal
+            # float32 tensors for text/vision fusion. Keeping this model fp32
+            # avoids the Float/Half matmul mismatch seen with fp16 checkpoints.
             model = AutoModelForZeroShotObjectDetection.from_pretrained(
-                self.reference, local_files_only=True,
-                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                self.reference, local_files_only=True, torch_dtype=torch.float32,
             ).to(self.config.get("device", "cuda" if torch.cuda.is_available() else "cpu")).eval()
             _CACHE[key] = (model, processor)
         return _CACHE[key]
@@ -125,7 +135,7 @@ class GroundingDinoAdapter:
         with _LOCK, torch.inference_mode():
             model, processor = self._load()
             inputs = processor(images=pil_image, text=[prompts], return_tensors="pt")
-            inputs = {key: value.to(model.device) for key, value in inputs.items()}
+            inputs = _model_inputs_on_device(inputs, model)
             outputs = model(**inputs)
             result = processor.post_process_grounded_object_detection(
                 outputs, inputs["input_ids"],
@@ -139,41 +149,6 @@ class GroundingDinoAdapter:
             index = _best_label_index(str(label), prompts)
             if index is not None and float(score) >= label_classes[index].confidence:
                 proposals.append(_proposal(label_classes[index], bbox, score, prompts[index]))
-        return proposals
-
-
-class OllamaVisionAdapter:
-    def __init__(self, reference, config=None):
-        self.model_tag = reference
-        self.config = config or {}
-
-    def predict(self, image, label_classes):
-        ok, encoded = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 92])
-        if not ok:
-            raise ValueError("Không encode được frame cho Ollama.")
-        labels = [{"class": item.name, "description": item.prompt} for item in label_classes]
-        prompt = (
-            "Locate every matching object in the image. Return JSON only as "
-            "{\"objects\":[{\"label\":\"class\",\"bbox\":[x1,y1,x2,y2]}]}. "
-            "Coordinates must be pixels in the original image. Allowed classes: " + json.dumps(labels)
-        )
-        payload = {"model": self.model_tag, "stream": False, "format": "json", "messages": [{
-            "role": "user", "content": prompt, "images": [base64.b64encode(encoded).decode()],
-        }]}
-        request = urllib.request.Request(
-            settings.OLLAMA_URL.rstrip("/") + "/api/chat", data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(request, timeout=300) as response:
-            result = json.load(response)
-        content = json.loads(result["message"]["content"])
-        by_name = {item.name: item for item in label_classes}
-        proposals = []
-        for item in content.get("objects", []):
-            label_class = by_name.get(item.get("label"))
-            bbox = item.get("bbox")
-            if label_class and isinstance(bbox, list) and len(bbox) == 4:
-                proposals.append(_proposal(label_class, bbox, None, label_class.prompt))
         return proposals
 
 

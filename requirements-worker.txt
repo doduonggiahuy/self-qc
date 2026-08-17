@@ -1,0 +1,10 @@
+ultralytics==8.3.94
+openai-clip==1.0.1
+transformers==4.49.0
+accelerate==1.4.0
+safetensors==0.5.3
+# Florence-2 and Grounding DINO remote model code import these at runtime.
+timm==1.0.15
+einops==0.8.1
+onnx==1.17.0
+onnxruntime-gpu==1.22.0

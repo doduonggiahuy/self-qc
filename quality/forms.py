@@ -3,7 +3,22 @@ from pathlib import Path
 from django import forms
 from django.utils.text import slugify
 
-from .models import GroundTruthRelease, InferenceModel
+from .models import EvaluationDataset, GroundTruthRelease, InferenceModel
+
+
+class EvaluationDatasetForm(forms.ModelForm):
+    class Meta:
+        model = EvaluationDataset
+        fields = ["name", "client_project"]
+        labels = {"name": "Tên evaluation task", "client_project": "Customer project"}
+
+    def __init__(self, user, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        projects = self.fields["client_project"].queryset
+        if not user.is_superuser:
+            projects = projects.filter(owner=user)
+        self.fields["client_project"].queryset = projects
+        self.fields["client_project"].required = True
 
 
 class TestCaseForm(forms.Form):
@@ -19,7 +34,7 @@ class TestCaseForm(forms.Form):
 class InferenceModelForm(forms.Form):
     provider = forms.ChoiceField(choices=InferenceModel.PROVIDER_CHOICES, label="Nguồn model")
     model_file = forms.FileField(required=False, label="File local (.pt hoặc .zip)")
-    source = forms.CharField(required=False, max_length=300, label="HF repo ID hoặc Ollama tag")
+    source = forms.CharField(required=False, max_length=300, label="Hugging Face repo ID")
     enabled = forms.BooleanField(required=False, initial=True, label="Cho User sử dụng sau khi sẵn sàng")
 
     def clean(self):
@@ -27,8 +42,8 @@ class InferenceModelForm(forms.Form):
         provider, model_file, source = data.get("provider"), data.get("model_file"), (data.get("source") or "").strip()
         if provider == "LOCAL" and not model_file:
             self.add_error("model_file", "Hãy chọn file .pt hoặc ZIP bundle.")
-        if provider != "LOCAL" and not source:
-            self.add_error("source", "Hãy nhập Hugging Face repo ID hoặc Ollama tag.")
+        if provider == "HUGGING_FACE" and not source:
+            self.add_error("source", "Hãy nhập Hugging Face repo ID.")
         return data
 
     def create_model(self, user):
@@ -50,8 +65,10 @@ class InferenceModelForm(forms.Form):
 
 def _infer_adapter(provider, source):
     lowered = source.lower()
-    if provider == "OLLAMA":
-        return "quality.adapters.OllamaVisionAdapter", "VISUAL_GROUNDING"
+    # A Hugging Face model is identified from downloaded metadata, not its
+    # repository name. Any repo may be imported into the registry.
+    if provider == "HUGGING_FACE":
+        return "quality.adapters.UnavailableAdapter", "VISUAL_GROUNDING"
     if "florence" in lowered:
         return "quality.adapters.Florence2Adapter", "VISUAL_GROUNDING"
     if "grounding-dino" in lowered or "grounding_dino" in lowered:

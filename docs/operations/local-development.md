@@ -36,8 +36,8 @@ make admin
 make pack-model SRC=/path/to/model OUT=/path/to/model.zip
 ```
 
-Local Compose bind-mount source repo vào `/app`, còn `data`, `media` và `models`
-vẫn dùng named volumes riêng. `make refresh` recreate riêng web container bằng
+Local Compose bind-mount source repo vào `/app` **chỉ cho code**. Dữ liệu runtime
+được mount ở `/var/lib/model-qc`, hoàn toàn tách khỏi source tree. `make refresh` recreate riêng web container bằng
 image hiện có để nhận code, thay đổi Compose và chạy migration qua entrypoint,
 nhưng không build image. Dùng `make rebuild` nếu thay `requirements.txt`,
 `Dockerfile`, system package hoặc CUDA/PyTorch stack.
@@ -78,7 +78,7 @@ make test
 ## Chạy bằng Docker
 
 ```bash
-docker compose up -d --build web
+docker compose up -d --build
 docker compose exec -T web python manage.py migrate
 docker compose exec -T web python manage.py test
 ```
@@ -94,5 +94,43 @@ python manage.py makemigrations --check
 python manage.py test
 ```
 
-Entrypoint tự migrate và bootstrap hai Django group. Không chạy
-`docker compose down -v` nếu cần giữ database, video và model weights.
+Entrypoint tự migrate và bootstrap hai Django group.
+
+## Dữ liệu Docker và reset có kiểm soát
+
+Không dùng bind mount cho dữ liệu upload hoặc model. Toàn bộ state bền vững của
+Model QC dùng **một named volume duy nhất** là `qc_storage`, do Docker Compose quản
+lý theo project `model-qc`. Bên trong volume này các service dùng thư mục con riêng:
+
+| Thư mục trong `qc_storage` | Nội dung |
+| --- | --- |
+| `postgres` | PostgreSQL: user, project, annotation, task và kết quả |
+| `media` | video, ảnh và export qua Django media |
+| `models` | local weight và bundle model đã upload |
+| `datasets` | raw dataset Model Quality, preview và output theo frame |
+
+Redis chỉ là broker/cache của Celery nên không lưu state business bền vững. Khi
+restart Redis, dữ liệu dự án/task vẫn còn trong PostgreSQL.
+
+Kiểm tra các volume thực tế của stack:
+
+```bash
+make data-volumes
+```
+
+Reset môi trường dev: xóa **toàn bộ** `qc_storage` gồm database, video/media,
+model upload và dataset:
+
+```bash
+make reset-data CONFIRM=RESET
+make up local
+```
+
+Alias có ý nghĩa tương đương:
+
+```bash
+make reset-all-data CONFIRM=RESET_ALL
+```
+
+Hai lệnh reset đều yêu cầu chuỗi xác nhận rõ ràng và chỉ chọn volume `qc_storage`
+của project Model QC; không đụng tới volume của project Docker khác.

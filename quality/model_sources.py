@@ -1,12 +1,8 @@
 import shutil
-import urllib.error
-import urllib.request
+import json
 from pathlib import Path
 
 from django.conf import settings
-
-from .model_artifacts import REQUIRED
-
 
 def provision_model(model):
     try:
@@ -15,8 +11,6 @@ def provision_model(model):
             install_uploaded_artifact(model)
         elif model.provider == "HUGGING_FACE":
             _pull_hugging_face(model)
-        elif model.provider == "OLLAMA":
-            _pull_ollama(model.source)
         model.status, model.validation_error = "READY", ""
     except Exception as exc:
         model.status, model.validation_error, model.enabled = "ERROR", str(exc), False
@@ -31,25 +25,33 @@ def _pull_hugging_face(model):
     shutil.rmtree(destination, ignore_errors=True)
     snapshot_download(
         repo_id=model.source, local_dir=destination,
-        ignore_patterns=["*.bin", "*.msgpack", "*.h5", ".git/*", ".cache/*"],
+        ignore_patterns=[".git/*", ".cache/*"],
     )
-    present = {item.name for item in destination.iterdir() if item.is_file()}
-    required = REQUIRED.get(model.adapter)
-    if not required or not any(item <= present for item in required):
-        shutil.rmtree(destination, ignore_errors=True)
-        raise ValueError("Repo không phải Florence-2/Grounding DINO bundle được hỗ trợ.")
+    model.adapter, model.task = _adapter_from_huggingface_metadata(destination)
+    if model.adapter == "quality.adapters.UnavailableAdapter":
+        # The artifact is valid storage even when this deployment has no
+        # execution adapter for its architecture yet.
+        model.enabled = False
     model.artifact_type, model.artifact_path = "MODEL_BUNDLE", str(destination_rel)
-    model.save(update_fields=["artifact_type", "artifact_path"])
+    model.save(update_fields=["artifact_type", "artifact_path", "adapter", "task", "enabled"])
 
 
-def _pull_ollama(tag):
-    import json
-    endpoint = settings.OLLAMA_URL.rstrip("/") + "/api/pull"
-    request = urllib.request.Request(endpoint, data=json.dumps({"model": tag, "stream": False}).encode(), headers={"Content-Type": "application/json"})
+def _adapter_from_huggingface_metadata(directory):
+    config_path = Path(directory) / "config.json"
     try:
-        with urllib.request.urlopen(request, timeout=3600) as response:
-            payload = json.load(response)
-    except urllib.error.URLError as exc:
-        raise ValueError(f"Không kết nối được Ollama: {exc}") from exc
-    if payload.get("status") != "success":
-        raise ValueError(f"Ollama pull thất bại: {payload}")
+        config = json.loads(config_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return "quality.adapters.UnavailableAdapter", "VISUAL_GROUNDING"
+    if not isinstance(config, dict):
+        return "quality.adapters.UnavailableAdapter", "VISUAL_GROUNDING"
+
+    architectures = config.get("architectures") or []
+    if not isinstance(architectures, (list, tuple)):
+        architectures = [architectures]
+    signals = [str(config.get("model_type", "")), *[str(value) for value in architectures]]
+    normalized = " ".join(signals).lower().replace("_", "-")
+    if "florence" in normalized:
+        return "quality.adapters.Florence2Adapter", "VISUAL_GROUNDING"
+    if "grounding-dino" in normalized or "groundingdino" in normalized:
+        return "quality.adapters.GroundingDinoAdapter", "OPEN_VOCAB_DETECTION"
+    return "quality.adapters.UnavailableAdapter", "VISUAL_GROUNDING"

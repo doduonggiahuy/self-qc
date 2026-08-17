@@ -32,10 +32,10 @@ boundary. Test run hiện chạy đồng bộ; worker/workflow durable là bư�
 - OpenCV đọc video/frame.
 - Ultralytics YOLO-World + CLIP cho auto-label.
 - Docker volumes lưu DB, media và weights.
-- Model source tối giản: upload local, Hugging Face pull hoặc Ollama pull.
+- Model source tối giản: upload local hoặc Hugging Face pull.
 
-Ollama chạy service riêng và giữ model trong `ollama_models`. Hugging Face snapshot
-được pin/lưu trong `qc_models/huggingface`; local artifacts nằm trong `qc_models`.
+Toàn bộ state persistent dùng volume `qc_storage`: Hugging Face snapshot nằm tại
+`models/huggingface` và local artifacts cũng nằm trong `models`.
 
 ## Kiến trúc đích
 

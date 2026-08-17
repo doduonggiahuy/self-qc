@@ -1,40 +1,93 @@
 name: model-qc
 
+x-django-env: &django-env
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-only-change-me}
+  DJANGO_DEBUG: ${DJANGO_DEBUG:-true}
+  POSTGRES_HOST: db
+  POSTGRES_PORT: 5432
+  POSTGRES_DB: ${POSTGRES_DB:-model_qc}
+  POSTGRES_USER: ${POSTGRES_USER:-model_qc}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-model_qc_local}
+  CELERY_BROKER_URL: redis://redis:6379/0
+  CELERY_RESULT_BACKEND: redis://redis:6379/1
+  INFERENCE_EXECUTION: worker
+  # Runtime data is deliberately outside the bind-mounted source tree. This
+  # prevents container data from being mixed with or shadowing repository files.
+  QC_MEDIA_ROOT: /var/lib/model-qc/media
+  QC_MODEL_ROOT: /var/lib/model-qc/models
+  QC_DATASET_ROOT: /var/lib/model-qc/datasets
+  DATA_UPLOAD_MAX_NUMBER_FILES: ${DATA_UPLOAD_MAX_NUMBER_FILES:-50000}
+  DATA_UPLOAD_MAX_NUMBER_FIELDS: ${DATA_UPLOAD_MAX_NUMBER_FIELDS:-100000}
+  DATASET_MAX_ARCHIVE_FILES: ${DATASET_MAX_ARCHIVE_FILES:-2000000}
+  DATASET_MAX_EXTRACTED_BYTES: ${DATASET_MAX_EXTRACTED_BYTES:-2199023255552}
+
+x-django-volumes: &django-volumes
+  - .:/app
+  - qc_storage:/var/lib/model-qc
+
 services:
-  web:
-    build: .
-    container_name: model_qc_web
-    entrypoint: ["/bin/sh", "/app/entrypoint.sh"]
-    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+  db:
+    image: postgres:16-alpine
+    container_name: model_qc_db
     restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-model_qc}
+      POSTGRES_USER: ${POSTGRES_USER:-model_qc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-model_qc_local}
+      PGDATA: /var/lib/model-qc/postgres
+    volumes:
+      - qc_storage:/var/lib/model-qc
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-model_qc} -d ${POSTGRES_DB:-model_qc}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: model_qc_redis
+    restart: unless-stopped
+    # Redis is only broker/result cache. Durable business data lives in PostgreSQL.
+    command: ["redis-server", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build:
+      context: .
+      target: web
+    container_name: model_qc_web
+    restart: unless-stopped
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
     ports:
       - "${QC_PORT:-8090}:8000"
     environment:
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-only-change-me}
-      DJANGO_DEBUG: ${DJANGO_DEBUG:-true}
-      YOLO_WORLD_MODEL: ${YOLO_WORLD_MODEL:-yolov8s-worldv2.pt}
-      YOLO_DEVICE: ${YOLO_DEVICE:-0}
-      YOLO_CONFIDENCE: ${YOLO_CONFIDENCE:-0.25}
-      QC_MODEL_ROOT: /app/models
-      OLLAMA_URL: http://ollama:11434
-    volumes:
-      - .:/app
-      - qc_data:/app/data
-      - qc_media:/app/media
-      - qc_models:/app/models
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              capabilities: [gpu]
+      <<: *django-env
+    volumes: *django-volumes
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: model_qc_ollama
+  worker:
+    build:
+      context: .
+      target: worker
+    container_name: model_qc_worker
     restart: unless-stopped
-    volumes:
-      - ollama_models:/root/.ollama
+    command: ["celery", "-A", "config", "worker", "--loglevel=INFO", "--concurrency=1"]
+    environment:
+      <<: *django-env
+      SKIP_BOOTSTRAP: "true"
+      YOLO_DEVICE: ${YOLO_DEVICE:-0}
+    volumes: *django-volumes
+    depends_on:
+      web:
+        condition: service_started
     deploy:
       resources:
         reservations:
@@ -43,7 +96,6 @@ services:
               capabilities: [gpu]
 
 volumes:
-  qc_data:
-  qc_media:
-  qc_models:
-  ollama_models:
+  qc_storage:
+    labels:
+      com.model-qc.reset-group: all-data

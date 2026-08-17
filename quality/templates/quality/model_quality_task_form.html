@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Chỉnh sửa {{ dataset.name }} · Model QC{% endblock %}
+{% block body %}
+<main class="container narrow">
+  <div class="page-head"><div><span class="pill">MODEL EVALUATION TASK</span><h1>Chỉnh sửa task</h1><p class="section-copy">Dataset, model và kết quả inference không bị thay đổi.</p></div></div>
+  <section class="card"><form method="post" class="stack">{% csrf_token %}{{ form.as_p }}<div class="page-head"><a href="{% url 'model-quality-workspace' %}">Hủy</a><button class="primary" type="submit">Lưu thay đổi</button></div></form></section>
+</main>
+{% endblock %}

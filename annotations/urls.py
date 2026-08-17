@@ -3,6 +3,7 @@ from . import views
 
 urlpatterns = [
     path("", views.project_list, name="project-list"),
+    path("ground-truth/", views.ground_truth_list, name="ground-truth-list"),
     path("clients/new/", views.client_project_create, name="client-project-create"),
     path("clients/<int:pk>/", views.client_project_detail, name="client-project-detail"),
     path("clients/<int:pk>/delete/", views.client_project_delete, name="client-project-delete"),

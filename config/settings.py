@@ -37,7 +37,18 @@ TEMPLATES = [{
     ]},
 }]
 WSGI_APPLICATION = "config.wsgi.application"
-DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "data/db.sqlite3"}}
+if os.getenv("POSTGRES_HOST"):
+    DATABASES = {"default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("POSTGRES_DB", "model_qc"),
+        "USER": os.getenv("POSTGRES_USER", "model_qc"),
+        "PASSWORD": os.getenv("POSTGRES_PASSWORD", "model_qc_local"),
+        "HOST": os.getenv("POSTGRES_HOST", "db"),
+        "PORT": os.getenv("POSTGRES_PORT", "5432"),
+        "CONN_MAX_AGE": 60,
+    }}
+else:
+    DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": os.getenv("SQLITE_DB_PATH", BASE_DIR / "data/db.sqlite3")}}
 AUTH_PASSWORD_VALIDATORS = []
 LANGUAGE_CODE = "vi"
 TIME_ZONE = "Asia/Ho_Chi_Minh"
@@ -46,11 +57,19 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_ROOT = Path(os.getenv("QC_MEDIA_ROOT", BASE_DIR / "media"))
 MODEL_ROOT = Path(os.getenv("QC_MODEL_ROOT", BASE_DIR / "models"))
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
+DATASET_ROOT = Path(os.getenv("QC_DATASET_ROOT", BASE_DIR / "datasets"))
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://redis:6379/1")
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = int(os.getenv("CELERY_TASK_TIME_LIMIT", "86400"))
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "project-list"
 LOGOUT_REDIRECT_URL = "login"
 DATA_UPLOAD_MAX_MEMORY_SIZE = 200 * 1024 * 1024
+DATA_UPLOAD_MAX_NUMBER_FILES = int(os.getenv("DATA_UPLOAD_MAX_NUMBER_FILES", "50000"))
+DATA_UPLOAD_MAX_NUMBER_FIELDS = int(os.getenv("DATA_UPLOAD_MAX_NUMBER_FIELDS", "100000"))
+DATASET_MAX_ARCHIVE_FILES = int(os.getenv("DATASET_MAX_ARCHIVE_FILES", "2000000"))
+DATASET_MAX_EXTRACTED_BYTES = int(os.getenv("DATASET_MAX_EXTRACTED_BYTES", str(2 * 1024**4)))

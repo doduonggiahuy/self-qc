@@ -93,7 +93,7 @@ class Target(models.Model):
 
 
 class InferenceModel(models.Model):
-    PROVIDER_CHOICES = [("LOCAL", "Upload local"), ("HUGGING_FACE", "Hugging Face"), ("OLLAMA", "Ollama")]
+    PROVIDER_CHOICES = [("LOCAL", "Upload local"), ("HUGGING_FACE", "Hugging Face")]
     STATUS_CHOICES = [("PENDING", "Pending"), ("READY", "Ready"), ("ERROR", "Error")]
     ARTIFACT_CHOICES = [("SINGLE_FILE", "Single weight file"), ("MODEL_BUNDLE", "Model bundle")]
     TASK_CHOICES = [
@@ -131,8 +131,6 @@ class InferenceModel(models.Model):
 
     @property
     def runtime_reference(self):
-        if self.provider == "OLLAMA":
-            return self.source
         if self.artifact_path:
             return str(Path(settings.MODEL_ROOT) / self.artifact_path)
         return self.model_file.path
@@ -157,10 +155,7 @@ class InferenceModel(models.Model):
             "quality.adapters.YoloWorldAdapter",
             "quality.adapters.Florence2Adapter",
             "quality.adapters.GroundingDinoAdapter",
-            "quality.adapters.OllamaVisionAdapter",
         }
-        if self.provider == "OLLAMA":
-            return self.enabled and self.status == "READY" and self.adapter == "quality.adapters.OllamaVisionAdapter" and bool(self.source)
         if not self.artifact_path and not self.model_file:
             return False
         reference = Path(self.runtime_reference)
@@ -246,3 +241,95 @@ class TestRun(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class EvaluationDataset(models.Model):
+    TASK_CHOICES = [("DETECTION", "Detection"), ("CLASSIFICATION", "Classification"), ("POSE", "Pose"), ("SEGMENTATION", "Segmentation")]
+    FORMAT_CHOICES = [("YOLO", "YOLO"), ("COCO", "COCO JSON"), ("CLASS_FOLDERS", "Classification folders"), ("UNKNOWN", "Unknown")]
+    STATUS_CHOICES = [("PROCESSING", "Processing"), ("READY", "Ready"), ("ERROR", "Error")]
+
+    name = models.CharField(max_length=180)
+    client_project = models.ForeignKey("annotations.ClientProject", null=True, blank=True, on_delete=models.SET_NULL, related_name="evaluation_datasets")
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="evaluation_datasets")
+    task = models.CharField(max_length=24, choices=TASK_CHOICES, blank=True)
+    format = models.CharField(max_length=24, choices=FORMAT_CHOICES, default="UNKNOWN")
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="PROCESSING", db_index=True)
+    source_path = models.CharField(max_length=500)
+    source_kind = models.CharField(max_length=16, choices=[("ZIP", "ZIP"), ("FOLDER", "Folder")])
+    image_count = models.PositiveIntegerField(default=0)
+    annotation_count = models.PositiveIntegerField(default=0)
+    missing_label_count = models.PositiveIntegerField(default=0)
+    manifest = models.JSONField(default=dict)
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.name
+
+
+class EvaluationDatasetClass(models.Model):
+    dataset = models.ForeignKey(EvaluationDataset, on_delete=models.CASCADE, related_name="classes")
+    external_id = models.CharField(max_length=80)
+    name = models.CharField(max_length=160)
+    annotation_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["external_id", "id"]
+        constraints = [models.UniqueConstraint(fields=["dataset", "external_id"], name="unique_evaluation_dataset_class")]
+
+
+class EvaluationModel(models.Model):
+    STATUS_CHOICES = [("ANALYZING", "Analyzing"), ("READY", "Ready"), ("ERROR", "Error")]
+
+    dataset = models.ForeignKey(EvaluationDataset, on_delete=models.CASCADE, related_name="candidate_models")
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="evaluation_models")
+    name = models.CharField(max_length=180)
+    model_file = models.FileField(storage=model_storage, upload_to="evaluation/")
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="ANALYZING", db_index=True)
+    detected_task = models.CharField(max_length=32, blank=True)
+    model_classes = models.JSONField(default=list)
+    class_mapping = models.JSONField(default=dict)
+    metadata = models.JSONField(default=dict)
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+
+class ModelEvaluationRun(models.Model):
+    STATUS_CHOICES = [("QUEUED", "Queued"), ("RUNNING", "Running"), ("COMPLETED", "Completed"), ("ERROR", "Error"), ("CANCELLED", "Cancelled")]
+
+    dataset = models.ForeignKey(EvaluationDataset, on_delete=models.PROTECT, related_name="evaluation_runs")
+    model = models.ForeignKey(EvaluationModel, on_delete=models.PROTECT, related_name="runs")
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="model_evaluation_runs")
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="QUEUED", db_index=True)
+    progress_current = models.PositiveIntegerField(default=0)
+    progress_total = models.PositiveIntegerField(default=0)
+    input_snapshot = models.JSONField(default=dict)
+    metrics = models.JSONField(default=dict)
+    per_class_metrics = models.JSONField(default=list)
+    preview = models.JSONField(default=dict)
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class ModelEvaluationFrame(models.Model):
+    run = models.ForeignKey(ModelEvaluationRun, on_delete=models.CASCADE, related_name="frames")
+    frame_index = models.PositiveIntegerField()
+    image = models.CharField(max_length=500)
+    output = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["frame_index"]
+        constraints = [models.UniqueConstraint(fields=["run", "frame_index"], name="unique_model_evaluation_frame")]

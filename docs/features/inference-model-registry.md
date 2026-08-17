@@ -8,11 +8,21 @@ Admin chỉ chọn nguồn và nhập một giá trị:
 
 - `Upload local`: chọn `.pt` hoặc ZIP bundle.
 - `Hugging Face`: nhập repo ID, ví dụ `microsoft/Florence-2-base-ft`.
-- `Ollama`: nhập tag, ví dụ `qwen3-vl:4b`.
 
-Tên, key, task và adapter được hệ thống tự suy ra. Các trường kỹ thuật/license không
-hiển thị trong form. Hugging Face được tải vào `qc_models/huggingface`; Ollama lưu
-weight trong volume `ollama_models`. Chỉ model `READY` và enabled xuất hiện cho User.
+Mọi Hugging Face repo đều có thể tải vào `qc_storage/models/huggingface`; không lọc
+theo tên model hoặc danh sách catalog. Sau khi tải, registry đọc `config.json` để tự
+nhận diện adapter khi architecture đã được hỗ trợ. Repo chưa có adapter vẫn là
+`READY` (đã lưu thành công) nhưng bị disable và không xuất hiện cho User inference.
+Các trường kỹ thuật/license không hiển thị trong form. Chỉ model `READY`, enabled và
+có adapter tương thích mới xuất hiện cho User.
+
+Worker image cài `transformers`, `timm` và `einops` để chạy Florence-2 và Grounding
+DINO. Sau khi thay worker dependency phải dùng `make rebuild SERVICE=worker`; chỉ
+`make refresh` sẽ không cài package mới.
+
+Về chất lượng: Grounding DINO là lựa chọn open-vocabulary detection ưu tiên cho
+bbox. Florence-2 hữu ích để gợi ý/auto-label, nhưng bbox không ổn định bằng detector
+chuyên dụng nên luôn cần review trong Annotation Studio.
 
 Registry tại `/system/models/`, chỉ Django Admin truy cập được. Một record gồm:
 
@@ -23,8 +33,8 @@ Registry tại `/system/models/`, chỉ Django Admin truy cập được. Một 
 - default JSON config và enabled state.
 
 Admin có thể upload, sửa hoặc xóa `.pt`, `.pth`, `.onnx`, `.engine` và
-`.torchscript`. File nằm dưới `MODEL_ROOT` (`/app/models` trong Docker), tức named
-volume `qc_models`. Khi thay file hoặc xóa record, registry cũng xóa file cũ mà nó
+`.torchscript`. File nằm dưới `MODEL_ROOT` (`/var/lib/model-qc/models` trong Docker), tức named
+volume `qc_storage` (thư mục `models`). Khi thay file hoặc xóa record, registry cũng xóa file cũ mà nó
 quản lý. Vì vậy UI luôn có bước xác nhận khi xóa.
 
 Quản lý được file không đồng nghĩa file chạy được. Hiện runtime selectable chỉ là
@@ -76,7 +86,7 @@ python manage.py pack_model_bundle /path/to/model-directory /path/to/model.zip
 Command bỏ bản weight `pytorch_model.bin` trùng lặp khi đã có
 `model.safetensors`. Khi upload, hệ thống giới hạn 500 file/20 GB, chặn absolute
 path, `..` và symlink, giải nén qua thư mục tạm rồi move atomically vào
-`qc_models/bundles`. Bundle tối thiểu phải có:
+`qc_storage/models/bundles`. Bundle tối thiểu phải có:
 
 ```text
 config.json

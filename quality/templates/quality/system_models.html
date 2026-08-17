@@ -16,13 +16,13 @@
 {% endblock %}
 {% block body %}
 <main class="container">
-  <div class="page-head"><div><h1 class="section-title">System · Models</h1><p class="section-copy">Upload file, pull Hugging Face repo hoặc pull Ollama model.</p></div></div>
+  <div class="page-head"><div><h1 class="section-title">System · Models</h1><p class="section-copy">Upload file local hoặc tải model bundle từ Hugging Face.</p></div></div>
   {% if messages %}<div class="card messages">{% for message in messages %}<div>{{ message }}</div>{% endfor %}</div>{% endif %}
   <div class="grid-two">
     <section class="card">
       <h2>Models</h2>
       <table><thead><tr><th>Model</th><th>Source</th><th>Status</th><th></th></tr></thead><tbody>
-      {% for model in models %}<tr><td><b>{{ model.name }}</b></td><td>{{ model.get_provider_display }}<br><span class="muted">{{ model.source|default:model.artifact_name }}</span></td><td>{{ model.status }} · {{ model.enabled|yesno:"Enabled,Disabled" }}{% if model.validation_error %}<br><span class="errorlist">{{ model.validation_error }}</span>{% endif %}</td><td><a href="{% url 'quality-system-model-edit' model.pk %}">Sửa</a><form method="post" action="{% url 'quality-system-model-delete' model.pk %}" onsubmit="return confirm('Xóa model?')">{% csrf_token %}<button class="danger">Xóa</button></form></td></tr>
+      {% for model in models %}<tr><td><b>{{ model.name }}</b></td><td>{{ model.get_provider_display }}<br><span class="muted">{{ model.source|default:model.artifact_name }}</span></td><td>{{ model.status }} · {{ model.enabled|yesno:"Enabled,Disabled" }}{% if model.status == "READY" and not model.is_selectable %}<br><span class="muted">Đã lưu; chưa có runtime adapter.</span>{% endif %}{% if model.validation_error %}<br><span class="errorlist">{{ model.validation_error }}</span>{% endif %}</td><td><a href="{% url 'quality-system-model-edit' model.pk %}">Sửa</a>{% if model.status != "READY" %}<form method="post" action="{% url 'quality-system-model-retry' model.pk %}">{% csrf_token %}<button class="secondary">Thử lại</button></form>{% endif %}<form method="post" action="{% url 'quality-system-model-delete' model.pk %}" onsubmit="return confirm('Xóa model?')">{% csrf_token %}<button class="danger">Xóa</button></form></td></tr>
       {% empty %}<tr><td colspan="4">Chưa có model.</td></tr>{% endfor %}
       </tbody></table>
     </section>
@@ -61,11 +61,7 @@ function updateSourceFields(){
   const isLocal=provider.value==='LOCAL';
   localField.hidden=!isLocal;
   remoteField.hidden=isLocal;
-  if(!isLocal){
-    const huggingFace=provider.value==='HUGGING_FACE';
-    remoteLabel.textContent=huggingFace?'Hugging Face repo ID':'Ollama model tag';
-    remoteHelp.textContent=huggingFace?'Ví dụ: microsoft/Florence-2-base-ft':'Ví dụ: qwen3-vl:4b';
-  }
+  if(!isLocal){remoteLabel.textContent='Hugging Face repo ID';remoteHelp.textContent='Ví dụ: microsoft/Florence-2-base-ft'}
 }
 provider.addEventListener('change',updateSourceFields);
 updateSourceFields();

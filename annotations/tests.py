@@ -30,6 +30,29 @@ class AnnotationApiTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn("/login/", response.url)
 
+    def test_workspace_modules_use_named_routes(self):
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("project-list"))
+        self.assertContains(response, f'href="{reverse("ground-truth-list")}"')
+        self.assertContains(response, f'href="{reverse("model-quality-workspace")}"')
+
+    def test_ground_truth_studio_lists_accessible_videos(self):
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("ground-truth-list"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.project.name)
+        self.assertContains(response, reverse("annotate", args=[self.project.pk]))
+
+    def test_annotator_endpoints_are_generated_by_django_routes(self):
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("annotate", args=[self.project.pk]))
+        sentinel = 999999
+        self.assertContains(response, reverse("frame-image", args=[self.project.pk, sentinel]))
+        self.assertContains(response, reverse("frame-data", args=[self.project.pk, sentinel]))
+        self.assertContains(response, reverse("infer-frame", args=[self.project.pk, sentinel]))
+        self.assertContains(response, reverse("save-frame", args=[self.project.pk, sentinel]))
+        self.assertContains(response, reverse("save-classes", args=[self.project.pk]))
+
     def test_non_owner_cannot_edit_project(self):
         self.client.force_login(self.other)
         response = self.client.get(reverse("annotate", args=[self.project.pk]))
@@ -103,6 +126,16 @@ class AnnotationApiTests(TestCase):
         first.videos.add(self.project)
         second.videos.add(self.project)
         self.assertEqual(self.project.rules.count(), 2)
+
+    def test_customer_project_exposes_model_quality_actions(self):
+        client_project = ClientProject.objects.create(name="Customer MQ", owner=self.owner)
+        rule = Rule.objects.create(client_project=client_project, name="Phone rule")
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("client-project-detail", args=[client_project.pk]))
+        project_url = f'{reverse("model-quality-create")}?project={client_project.pk}'
+        rule_url = f'{project_url}&rule={rule.pk}'
+        self.assertContains(response, project_url)
+        self.assertNotContains(response, rule_url)
 
     def test_save_empty_frame_deletes_all_bbox_on_that_frame(self):
         BoxAnnotation.objects.create(

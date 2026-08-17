@@ -8,11 +8,14 @@ nghệ phải cập nhật file tương ứng trong cùng pull request.
 1. [System overview](architecture/system-overview.md)
 2. [Domain model](architecture/domain-model.md)
 3. [Roles and permissions](features/roles-and-permissions.md)
-4. [Ground Truth workflow](features/ground-truth.md)
-5. [Quality Lab](features/quality-lab.md)
-6. [Inference model registry](features/inference-model-registry.md)
-7. [Promptable model catalog](models/promptable-model-catalog.md)
-8. [Local operations](operations/local-development.md)
+4. [Annotation Studio](features/annotation-studio.md)
+5. [Ground Truth workflow](features/ground-truth.md)
+6. [Project, Rule và Video domain](project-rule-video-domain.md)
+7. [Quality Lab](features/quality-lab.md)
+8. [Model Quality workspace](features/model-quality-workspace.md)
+9. [Inference model registry](features/inference-model-registry.md)
+10. [Promptable model catalog](models/promptable-model-catalog.md)
+11. [Local operations](operations/local-development.md)
 
 ## Quy ước tài liệu
 
@@ -21,4 +24,3 @@ nghệ phải cập nhật file tương ứng trong cùng pull request.
 - Gắn nhãn rõ `Implemented`, `Planned` hoặc `Research`.
 - Không mô tả thiết kế dự kiến như thể nó đã chạy trong production.
 - Link tới nguồn chính thức khi ghi nhận hành vi, license hoặc yêu cầu model.
-

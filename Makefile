@@ -8,9 +8,11 @@ VENV_PYTHON := $(VENV)/bin/python
 VENV_PIP := $(VENV)/bin/pip
 COMPOSE ?= docker compose
 SERVICE ?= web
+PROJECT_NAME ?= model-qc
 
 .PHONY: help install install-cpu env check test migrate migrations bootstrap \
-	dev up local up-local down stop restart refresh rebuild logs ps shell admin pack-model clean
+	dev up local up-local down stop restart refresh refresh-all rebuild logs logs-all ps shell admin pack-model clean \
+	data-volumes reset-data reset-all-data
 
 help: ## Hiển thị các command có sẵn
 	@awk 'BEGIN {FS = ":.*## "; printf "Model QC commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -62,20 +64,47 @@ up-local: up ## Alias rõ nghĩa cho `make up local`
 down: ## Dừng và remove container/network, giữ nguyên named volumes
 	$(COMPOSE) down
 
+data-volumes: ## Liệt kê named volumes dữ liệu thuộc riêng Model QC
+	docker volume ls --filter "label=com.docker.compose.project=$(PROJECT_NAME)" --format "table {{.Name}}\t{{.Labels}}"
+
+reset-data: ## Xóa toàn bộ dữ liệu Model QC trong qc_storage (CONFIRM=RESET)
+	@if [ "$(CONFIRM)" != "RESET" ]; then \
+		echo "Từ chối xóa: dùng 'make reset-data CONFIRM=RESET'. Lệnh xóa database, media, models và datasets."; \
+		exit 2; \
+	fi
+	$(COMPOSE) down --remove-orphans
+	@docker volume ls -q --filter "label=com.docker.compose.project=$(PROJECT_NAME)" --filter "label=com.model-qc.reset-group=all-data" | xargs -r docker volume rm
+	@echo "Đã xóa qc_storage. Chạy 'make up local' để tạo stack mới."
+
+reset-all-data: ## Alias reset toàn bộ qc_storage (CONFIRM=RESET_ALL)
+	@if [ "$(CONFIRM)" != "RESET_ALL" ]; then \
+		echo "Từ chối xóa: dùng 'make reset-all-data CONFIRM=RESET_ALL'. Lệnh này xóa qc_storage."; \
+		exit 2; \
+	fi
+	$(COMPOSE) down --remove-orphans
+	@docker volume ls -q --filter "label=com.docker.compose.project=$(PROJECT_NAME)" --filter "label=com.model-qc.reset-group=all-data" | xargs -r docker volume rm
+	@echo "Đã xóa qc_storage."
+
 stop: ## Dừng service nhưng giữ container và volumes
 	$(COMPOSE) stop
 
 restart: ## Restart service web
 	$(COMPOSE) restart $(SERVICE)
 
-refresh: env ## Recreate web bằng image hiện có để apply code/compose/migration, không rebuild
-	$(COMPOSE) up -d --no-build --force-recreate $(SERVICE)
+refresh: env ## Recreate web/worker để apply code và migration, không rebuild image
+	$(COMPOSE) up -d --no-build --force-recreate web worker
+
+refresh-all: env ## Alias của refresh
+	$(COMPOSE) up -d --no-build --force-recreate web worker
 
 rebuild: env ## Rebuild và recreate service web
 	$(COMPOSE) up -d --build $(SERVICE)
 
 logs: ## Theo dõi log service web
 	$(COMPOSE) logs -f $(SERVICE)
+
+logs-all: ## Theo dõi log web, worker, db và redis
+	$(COMPOSE) logs -f web worker db redis
 
 ps: ## Xem trạng thái service
 	$(COMPOSE) ps
