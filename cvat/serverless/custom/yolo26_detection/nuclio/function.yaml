@@ -1,0 +1,86 @@
+metadata:
+  name: pytorch-yolo26s-detection
+  namespace: cvat
+
+  annotations:
+    name: YOLO26s Detection
+    type: detector
+    framework: pytorch
+
+    spec: |
+      [
+        {
+          "id": 0,
+          "name": "person",
+          "type": "rectangle"
+        },
+        {
+          "id": 67,
+          "name": "cell phone",
+          "type": "rectangle"
+        }
+      ]
+
+spec:
+  description: YOLO26s Detection for CVAT
+
+  runtime: python:3.10
+
+  handler: main:handler
+
+  eventTimeout: 60s
+
+  build:
+    image: cvat.yolo26s.detection
+
+    baseImage: python:3.10-slim
+
+    directives:
+      preCopy:
+        - kind: RUN
+          value: >-
+            apt-get update &&
+            apt-get install -y --no-install-recommends
+            libglib2.0-0
+            libgl1
+            libxcb1
+            &&
+            rm -rf /var/lib/apt/lists/*
+
+        - kind: RUN
+          value: >-
+            pip install --no-cache-dir
+            ultralytics
+            pillow
+
+      postCopy:
+        - kind: RUN
+          value: >-
+            python -c "import cv2; print('OpenCV OK:', cv2.__version__)"
+
+        - kind: RUN
+          value: >-
+            python -c "from ultralytics import YOLO; print('Ultralytics import OK')"
+
+        - kind: RUN
+          value: >-
+            ls -lah /opt/nuclio
+
+  triggers:
+    myHttpTrigger:
+      kind: http
+
+      numWorkers: 1
+
+      workerAvailabilityTimeoutMilliseconds: 10000
+
+      attributes:
+        maxRequestBodySize: 33554432
+
+  platform:
+    attributes:
+      restartPolicy:
+        name: always
+        maximumRetryCount: 3
+
+      mountMode: volume

@@ -1,0 +1,8 @@
+services:
+  cvat_server:
+    environment:
+      CVAT_NUCLIO_INVOKE_METHOD: dashboard
+
+  cvat_worker_annotation:
+    environment:
+      CVAT_NUCLIO_INVOKE_METHOD: dashboard

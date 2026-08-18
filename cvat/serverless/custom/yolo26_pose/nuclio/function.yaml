@@ -1,0 +1,130 @@
+metadata:
+  name: pytorch-yolo26s-pose
+  namespace: cvat
+
+  annotations:
+    name: YOLO26s Pose
+    type: detector
+    framework: pytorch
+
+    spec: |
+      [
+        {
+          "name": "person_pose",
+          "type": "skeleton",
+          "sublabels": [
+            {
+              "id": 0,
+              "name": "nose",
+              "type": "points"
+            },
+            {
+              "id": 1,
+              "name": "right_eye",
+              "type": "points"
+            },
+            {
+              "id": 2,
+              "name": "left_eye",
+              "type": "points"
+            },
+            {
+              "id": 3,
+              "name": "right_ear",
+              "type": "points"
+            },
+            {
+              "id": 4,
+              "name": "left_ear",
+              "type": "points"
+            },
+            {
+              "id": 5,
+              "name": "right_shoulder",
+              "type": "points"
+            },
+            {
+              "id": 6,
+              "name": "left_shoulder",
+              "type": "points"
+            },
+            {
+              "id": 7,
+              "name": "right_elbow",
+              "type": "points"
+            },
+            {
+              "id": 8,
+              "name": "left_elbow",
+              "type": "points"
+            },
+            {
+              "id": 9,
+              "name": "right_wrist",
+              "type": "points"
+            },
+            {
+              "id": 10,
+              "name": "left_wrist",
+              "type": "points"
+            }
+          ],
+          "svg": "<line x1=\"50\" y1=\"20\" x2=\"42\" y2=\"16\" data-type=\"edge\" data-node-from=\"0\" data-node-to=\"1\"></line><line x1=\"50\" y1=\"20\" x2=\"58\" y2=\"16\" data-type=\"edge\" data-node-from=\"0\" data-node-to=\"2\"></line><line x1=\"42\" y1=\"16\" x2=\"34\" y2=\"20\" data-type=\"edge\" data-node-from=\"1\" data-node-to=\"3\"></line><line x1=\"58\" y1=\"16\" x2=\"66\" y2=\"20\" data-type=\"edge\" data-node-from=\"2\" data-node-to=\"4\"></line><line x1=\"30\" y1=\"35\" x2=\"18\" y2=\"48\" data-type=\"edge\" data-node-from=\"5\" data-node-to=\"7\"></line><line x1=\"18\" y1=\"48\" x2=\"10\" y2=\"62\" data-type=\"edge\" data-node-from=\"7\" data-node-to=\"9\"></line><line x1=\"70\" y1=\"35\" x2=\"82\" y2=\"48\" data-type=\"edge\" data-node-from=\"6\" data-node-to=\"8\"></line><line x1=\"82\" y1=\"48\" x2=\"90\" y2=\"62\" data-type=\"edge\" data-node-from=\"8\" data-node-to=\"10\"></line><circle r=\"0.75\" cx=\"50\" cy=\"20\" data-type=\"element node\" data-element-id=\"0\" data-node-id=\"0\" data-label-name=\"nose\"></circle><circle r=\"0.75\" cx=\"42\" cy=\"16\" data-type=\"element node\" data-element-id=\"1\" data-node-id=\"1\" data-label-name=\"right_eye\"></circle><circle r=\"0.75\" cx=\"58\" cy=\"16\" data-type=\"element node\" data-element-id=\"2\" data-node-id=\"2\" data-label-name=\"left_eye\"></circle><circle r=\"0.75\" cx=\"34\" cy=\"20\" data-type=\"element node\" data-element-id=\"3\" data-node-id=\"3\" data-label-name=\"right_ear\"></circle><circle r=\"0.75\" cx=\"66\" cy=\"20\" data-type=\"element node\" data-element-id=\"4\" data-node-id=\"4\" data-label-name=\"left_ear\"></circle><circle r=\"0.75\" cx=\"30\" cy=\"35\" data-type=\"element node\" data-element-id=\"5\" data-node-id=\"5\" data-label-name=\"right_shoulder\"></circle><circle r=\"0.75\" cx=\"70\" cy=\"35\" data-type=\"element node\" data-element-id=\"6\" data-node-id=\"6\" data-label-name=\"left_shoulder\"></circle><circle r=\"0.75\" cx=\"18\" cy=\"48\" data-type=\"element node\" data-element-id=\"7\" data-node-id=\"7\" data-label-name=\"right_elbow\"></circle><circle r=\"0.75\" cx=\"82\" cy=\"48\" data-type=\"element node\" data-element-id=\"8\" data-node-id=\"8\" data-label-name=\"left_elbow\"></circle><circle r=\"0.75\" cx=\"10\" cy=\"62\" data-type=\"element node\" data-element-id=\"9\" data-node-id=\"9\" data-label-name=\"right_wrist\"></circle><circle r=\"0.75\" cx=\"90\" cy=\"62\" data-type=\"element node\" data-element-id=\"10\" data-node-id=\"10\" data-label-name=\"left_wrist\"></circle>"
+        }
+      ]
+
+spec:
+  description: YOLO26s Pose upper-body for CVAT
+
+  runtime: python:3.10
+  handler: main:handler
+  eventTimeout: 60s
+
+  build:
+    image: cvat.yolo26s.pose
+    baseImage: python:3.10-slim
+
+    directives:
+      preCopy:
+        - kind: RUN
+          value: >-
+            apt-get update &&
+            apt-get install -y --no-install-recommends
+            libglib2.0-0
+            libgl1
+            libxcb1
+            &&
+            rm -rf /var/lib/apt/lists/*
+
+        - kind: RUN
+          value: >-
+            pip install --no-cache-dir
+            ultralytics
+            pillow
+
+      postCopy:
+        - kind: RUN
+          value: python -c "import cv2; print('OpenCV OK:', cv2.__version__)"
+
+        - kind: RUN
+          value: python -c "from ultralytics import YOLO; print('Ultralytics OK')"
+
+        - kind: RUN
+          value: ls -lah /opt/nuclio
+
+  triggers:
+    myHttpTrigger:
+      kind: http
+      numWorkers: 1
+      workerAvailabilityTimeoutMilliseconds: 10000
+
+      attributes:
+        maxRequestBodySize: 33554432
+
+  platform:
+    attributes:
+      restartPolicy:
+        name: always
+        maximumRetryCount: 3
+
+      mountMode: volume

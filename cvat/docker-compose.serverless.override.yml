@@ -1,0 +1,8 @@
+services:
+  cvat_worker_annotation:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  cvat_server:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
