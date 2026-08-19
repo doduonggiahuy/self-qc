@@ -23,7 +23,18 @@ x-django-env: &django-env
 
 x-django-volumes: &django-volumes
   - .:/app
-  - qc_storage:/var/lib/model-qc
+  - runtime_artifacts:/var/lib/model-qc
+
+x-worker: &worker
+  restart: unless-stopped
+  environment:
+    <<: *django-env
+    SKIP_BOOTSTRAP: "true"
+    YOLO_DEVICE: ${YOLO_DEVICE:-cpu}
+  volumes: *django-volumes
+  depends_on:
+    platform-web:
+      condition: service_started
 
 services:
   db:
@@ -34,9 +45,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-model_qc}
       POSTGRES_USER: ${POSTGRES_USER:-model_qc}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-model_qc_local}
-      PGDATA: /var/lib/model-qc/postgres
+      PGDATA: /var/lib/postgresql/data
     volumes:
-      - qc_storage:/var/lib/model-qc
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-model_qc} -d ${POSTGRES_DB:-model_qc}"]
       interval: 5s
@@ -55,11 +66,12 @@ services:
       timeout: 3s
       retries: 20
 
-  web:
+  platform-web:
     build:
       context: .
-      target: web
-    container_name: model_qc_web
+      target: platform-web
+    image: model-qc/platform-web:dev
+    container_name: model_qc_platform_web
     restart: unless-stopped
     command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
     ports:
@@ -73,29 +85,96 @@ services:
       redis:
         condition: service_healthy
 
-  worker:
+  platform-worker:
     build:
       context: .
-      target: worker
-    container_name: model_qc_worker
+      target: platform-worker
+    image: model-qc/platform-worker:dev
+    container_name: model_qc_platform_worker
+    <<: *worker
+
+  annotation-worker:
+    build:
+      context: .
+      target: annotation-worker
+    image: model-qc/annotation-worker:dev
+    container_name: model_qc_annotation_worker
+    <<: *worker
+
+  annotation-yolo26-detection:
+    build:
+      context: .
+      dockerfile: annotations/runtime/Dockerfile
+    image: model-qc/annotation-yolo26:dev
+    container_name: model_qc_annotation_yolo26_detection
+    entrypoint: ["python", "/app/annotations/runtime/server.py"]
     restart: unless-stopped
-    command: ["celery", "-A", "config", "worker", "--loglevel=INFO", "--concurrency=1"]
     environment:
-      <<: *django-env
-      SKIP_BOOTSTRAP: "true"
-      YOLO_DEVICE: ${YOLO_DEVICE:-0}
-    volumes: *django-volumes
+      AUTO_MODEL_PATH: /app/cvat/serverless/custom/yolo26_detection/nuclio/yolo26s.pt
+      AUTO_MODEL_KIND: detector
+      AUTO_MODEL_DEVICE: ${YOLO_DEVICE:-0}
+    volumes:
+      - .:/app:ro
+    gpus: all
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+
+  annotation-yolo26-pose:
+    image: model-qc/annotation-yolo26:dev
+    container_name: model_qc_annotation_yolo26_pose
+    entrypoint: ["python", "/app/annotations/runtime/server.py"]
+    restart: unless-stopped
     depends_on:
-      web:
+      annotation-yolo26-detection:
         condition: service_started
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              capabilities: [gpu]
+    environment:
+      AUTO_MODEL_PATH: /app/cvat/serverless/custom/yolo26_pose/nuclio/yolo26s-pose.pt
+      AUTO_MODEL_KIND: pose
+      AUTO_MODEL_DEVICE: ${YOLO_DEVICE:-0}
+      AUTO_POSE_LABEL: person_pose
+      AUTO_POSE_KEYPOINTS: '["nose","left_eye","right_eye","left_ear","right_ear","left_shoulder","right_shoulder","left_elbow","right_elbow","left_wrist","right_wrist","left_hip","right_hip","left_knee","right_knee","left_ankle","right_ankle"]'
+    volumes:
+      - .:/app:ro
+    gpus: all
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+
+  quality-worker:
+    build:
+      context: .
+      target: quality-worker
+    image: model-qc/quality-worker:dev
+    container_name: model_qc_quality_worker
+    <<: *worker
+
+  training-worker:
+    build:
+      context: .
+      target: training-worker
+    image: model-qc/training-worker:dev
+    container_name: model_qc_training_worker
+    <<: *worker
+
+  ai-rules-worker:
+    build:
+      context: .
+      target: ai-rules-worker
+    image: model-qc/ai-rules-worker:dev
+    container_name: model_qc_ai_rules_worker
+    <<: *worker
 
 volumes:
-  qc_storage:
+  postgres_data:
+    labels:
+      com.model-qc.reset-group: all-data
+  runtime_artifacts:
     labels:
       com.model-qc.reset-group: all-data

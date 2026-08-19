@@ -2,54 +2,52 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := help
 .NOTPARALLEL:
 
-PYTHON ?= python3
-VENV ?= .venv
-VENV_PYTHON := $(VENV)/bin/python
-VENV_PIP := $(VENV)/bin/pip
 COMPOSE ?= docker compose
-SERVICE ?= web
+SERVICE ?= platform-web
 PROJECT_NAME ?= model-qc
+APP_SERVICES := platform-web platform-worker annotation-worker quality-worker training-worker ai-rules-worker
+INFERENCE_SERVICES := annotation-yolo26-detection annotation-yolo26-pose
 
-.PHONY: help install install-cpu env check test migrate migrations bootstrap \
-	dev up local up-local down stop restart refresh refresh-all rebuild logs logs-all ps shell admin pack-model clean \
-	data-volumes reset-data reset-all-data
+.PHONY: help install install-cpu env check test migrate migrations bootstrap docker-migrate docker-test \
+	dev up local up-local down stop restart apply refresh refresh-all rebuild logs logs-all ps shell admin pack-model clean \
+	data-volumes reset-data reset-all-data sync-auto-annotation
 
 help: ## Hiển thị các command có sẵn
 	@awk 'BEGIN {FS = ":.*## "; printf "Model QC commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-install: ## Tạo .venv và cài dependency local với PyTorch CUDA 12.8
-	@test -d "$(VENV)" || "$(PYTHON)" -m venv "$(VENV)"
-	"$(VENV_PYTHON)" -m pip install --upgrade pip setuptools wheel
-	"$(VENV_PIP)" install --index-url https://download.pytorch.org/whl/cu128 torch==2.7.1 torchvision==0.22.1
-	"$(VENV_PIP)" install -r requirements.txt
+install: up ## Build Docker images và bật toàn bộ local stack
 
-install-cpu: ## Tạo .venv CPU-only để develop/check/test khi không có NVIDIA GPU
-	@test -d "$(VENV)" || "$(PYTHON)" -m venv "$(VENV)"
-	"$(VENV_PYTHON)" -m pip install --upgrade pip setuptools wheel
-	"$(VENV_PIP)" install --index-url https://download.pytorch.org/whl/cpu torch==2.7.1 torchvision==0.22.1
-	"$(VENV_PIP)" install -r requirements.txt
+install-cpu: up ## Alias Docker-first; worker mặc định chạy CPU
 
 env: ## Tạo .env từ .env.example nếu chưa tồn tại
 	@test -f .env || cp .env.example .env
 
-check: ## Chạy Django system check và kiểm tra migration thiếu
-	"$(VENV_PYTHON)" manage.py check
-	"$(VENV_PYTHON)" manage.py makemigrations --check
+check: ## Chạy Django system check và kiểm tra migration thiếu trong Docker
+	$(COMPOSE) up -d platform-web
+	$(COMPOSE) exec platform-web python manage.py check
+	$(COMPOSE) exec platform-web python manage.py makemigrations --check
 
-test: ## Chạy toàn bộ test bằng .venv
-	"$(VENV_PYTHON)" manage.py test
+test: ## Chạy toàn bộ test trong Docker
+	$(COMPOSE) up -d platform-web
+	$(COMPOSE) exec platform-web python manage.py test
 
-migrate: ## Apply migration bằng .venv
-	"$(VENV_PYTHON)" manage.py migrate
+migrate: ## Apply migration trong Docker
+	$(COMPOSE) up -d platform-web
+	$(COMPOSE) exec platform-web python manage.py migrate
 
-migrations: ## Sinh migration mới bằng .venv
-	"$(VENV_PYTHON)" manage.py makemigrations
+docker-migrate: migrate ## Alias tương thích của migrate
 
-bootstrap: ## Bootstrap role Django bằng .venv
-	"$(VENV_PYTHON)" manage.py bootstrap_roles
+docker-test: test ## Alias tương thích của test
 
-dev: migrate bootstrap ## Chạy Django trực tiếp từ .venv tại port 8090
-	"$(VENV_PYTHON)" manage.py runserver 0.0.0.0:8090
+migrations: ## Sinh migration mới trong Docker
+	$(COMPOSE) up -d platform-web
+	$(COMPOSE) exec platform-web python manage.py makemigrations
+
+bootstrap: ## Bootstrap role Django trong Docker
+	$(COMPOSE) up -d platform-web
+	$(COMPOSE) exec platform-web python manage.py bootstrap_roles
+
+dev: up ## Alias Docker-first của up
 
 up: env ## Build và bật toàn bộ local stack bằng Docker Compose
 	$(COMPOSE) up -d --build
@@ -67,59 +65,66 @@ down: ## Dừng và remove container/network, giữ nguyên named volumes
 data-volumes: ## Liệt kê named volumes dữ liệu thuộc riêng Model QC
 	docker volume ls --filter "label=com.docker.compose.project=$(PROJECT_NAME)" --format "table {{.Name}}\t{{.Labels}}"
 
-reset-data: ## Xóa toàn bộ dữ liệu Model QC trong qc_storage (CONFIRM=RESET)
+reset-data: ## Xóa PostgreSQL và artifact runtime Model QC (CONFIRM=RESET)
 	@if [ "$(CONFIRM)" != "RESET" ]; then \
 		echo "Từ chối xóa: dùng 'make reset-data CONFIRM=RESET'. Lệnh xóa database, media, models và datasets."; \
 		exit 2; \
 	fi
 	$(COMPOSE) down --remove-orphans
 	@docker volume ls -q --filter "label=com.docker.compose.project=$(PROJECT_NAME)" --filter "label=com.model-qc.reset-group=all-data" | xargs -r docker volume rm
-	@echo "Đã xóa qc_storage. Chạy 'make up local' để tạo stack mới."
+	@echo "Đã xóa PostgreSQL và artifact runtime. Chạy 'make up local' để tạo stack mới."
 
-reset-all-data: ## Alias reset toàn bộ qc_storage (CONFIRM=RESET_ALL)
+reset-all-data: ## Alias reset toàn bộ runtime data (CONFIRM=RESET_ALL)
 	@if [ "$(CONFIRM)" != "RESET_ALL" ]; then \
-		echo "Từ chối xóa: dùng 'make reset-all-data CONFIRM=RESET_ALL'. Lệnh này xóa qc_storage."; \
+		echo "Từ chối xóa: dùng 'make reset-all-data CONFIRM=RESET_ALL'. Lệnh này xóa PostgreSQL và artifact runtime."; \
 		exit 2; \
 	fi
 	$(COMPOSE) down --remove-orphans
 	@docker volume ls -q --filter "label=com.docker.compose.project=$(PROJECT_NAME)" --filter "label=com.model-qc.reset-group=all-data" | xargs -r docker volume rm
-	@echo "Đã xóa qc_storage."
+	@echo "Đã xóa PostgreSQL và artifact runtime."
 
 stop: ## Dừng service nhưng giữ container và volumes
 	$(COMPOSE) stop
 
-restart: ## Restart service web
+restart: ## Restart service đã chọn (mặc định platform-web)
 	$(COMPOSE) restart $(SERVICE)
 
-refresh: env ## Recreate web/worker để apply code và migration, không rebuild image
-	$(COMPOSE) up -d --no-build --force-recreate web worker
+apply: ## Apply code mới: recreate Platform và toàn bộ worker, không rebuild image
+	$(COMPOSE) up -d --no-build --force-recreate $(APP_SERVICES)
+
+refresh: env ## Recreate Platform web và toàn bộ domain workers, không rebuild image
+	$(COMPOSE) up -d --no-build --force-recreate $(APP_SERVICES)
 
 refresh-all: env ## Alias của refresh
-	$(COMPOSE) up -d --no-build --force-recreate web worker
+	$(COMPOSE) up -d --no-build --force-recreate $(APP_SERVICES)
 
-rebuild: env ## Rebuild và recreate service web
+rebuild: env ## Rebuild và recreate service đã chọn
 	$(COMPOSE) up -d --build $(SERVICE)
 
-logs: ## Theo dõi log service web
+logs: ## Theo dõi log Platform web
 	$(COMPOSE) logs -f $(SERVICE)
 
-logs-all: ## Theo dõi log web, worker, db và redis
-	$(COMPOSE) logs -f web worker db redis
+logs-all: ## Theo dõi log Platform, workers, model inference, db và redis
+	$(COMPOSE) logs -f $(APP_SERVICES) $(INFERENCE_SERVICES) db redis
 
 ps: ## Xem trạng thái service
 	$(COMPOSE) ps
 
-shell: ## Mở Django shell trong container web
+sync-auto-annotation: ## Bật YOLO26 Detection/Pose và đồng bộ function specs vào registry
+	$(COMPOSE) up -d annotation-yolo26-detection annotation-yolo26-pose
+	$(COMPOSE) exec -T platform-web python manage.py sync_auto_annotation_functions
+
+shell: ## Mở Django shell trong Platform web container
 	$(COMPOSE) exec $(SERVICE) python manage.py shell
 
-admin: ## Tạo Django superuser tương tác trong container web
+admin: ## Tạo Django superuser tương tác trong Platform web container
 	$(COMPOSE) exec $(SERVICE) python manage.py createsuperuser
 
-pack-model: ## Đóng gói HF model directory: make pack-model SRC=/path/model OUT=/path/model.zip
-	@test -n "$(SRC)" || (echo "Thiếu SRC=/path/to/model-directory" && exit 2)
-	@test -n "$(OUT)" || (echo "Thiếu OUT=/path/to/model.zip" && exit 2)
-	"$(VENV_PYTHON)" manage.py pack_model_bundle "$(SRC)" "$(OUT)"
+pack-model: ## Đóng gói model đã nằm trong workspace: make pack-model SRC=/app/... OUT=/app/...
+	@test -n "$(SRC)" || (echo "Thiếu SRC=/app/model-directory" && exit 2)
+	@test -n "$(OUT)" || (echo "Thiếu OUT=/app/model.zip" && exit 2)
+	$(COMPOSE) exec platform-web python manage.py pack_model_bundle "$(SRC)" "$(OUT)"
 
-clean: ## Xóa cache Python local; không xóa DB/media/model/volumes
-	find . -type d -name __pycache__ -not -path './.venv/*' -prune -exec rm -r {} +
-	find . -type f -name '*.py[co]' -not -path './.venv/*' -delete
+clean: ## Xóa cache Python trong workspace; không xóa Docker data/volumes
+	find . -type d -name __pycache__ -prune -exec rm -r {} +
+	find . -type f -name '*.py[co]' -delete

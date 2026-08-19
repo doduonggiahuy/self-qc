@@ -48,7 +48,7 @@ class YoloWorldAdapter:
 
     def predict(self, image, label_classes):
         from ultralytics import YOLOWorld
-        prompts = [item.prompt.strip() or item.name for item in label_classes]
+        prompts = [item.name for item in label_classes]
         if not prompts:
             return []
         with _LOCK:
@@ -96,7 +96,7 @@ class Florence2Adapter:
         with _LOCK, torch.inference_mode():
             model, processor = self._load()
             for label_class in label_classes:
-                prompt = label_class.prompt.strip() or label_class.name
+                prompt = label_class.name
                 task = "<CAPTION_TO_PHRASE_GROUNDING>"
                 inputs = processor(text=task + prompt, images=pil_image, return_tensors="pt")
                 inputs = _model_inputs_on_device(inputs, model)
@@ -131,7 +131,7 @@ class GroundingDinoAdapter:
     def predict(self, image, label_classes):
         import torch
         pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-        prompts = [item.prompt.strip() or item.name for item in label_classes]
+        prompts = [item.name for item in label_classes]
         with _LOCK, torch.inference_mode():
             model, processor = self._load()
             inputs = processor(images=pil_image, text=[prompts], return_tensors="pt")

@@ -28,7 +28,6 @@ urlpatterns = [
     path("system/models/<int:model_pk>/edit/", views.edit_system_model, name="quality-system-model-edit"),
     path("system/models/<int:model_pk>/retry/", views.retry_system_model, name="quality-system-model-retry"),
     path("system/models/<int:model_pk>/delete/", views.delete_system_model, name="quality-system-model-delete"),
-    path("account/inference-model/", views.select_inference_model, name="quality-select-inference-model"),
     path("projects/<int:project_pk>/quality/", views.dashboard, name="quality-dashboard"),
     path("projects/<int:project_pk>/quality/freeze-gt/", views.freeze_gt, name="quality-freeze-gt"),
     path("projects/<int:project_pk>/quality/test-cases/", views.create_test_case, name="quality-create-case"),

@@ -1,6 +1,20 @@
 # Model QC Studio
 
-Tài liệu hệ thống được duy trì tại [`docs/`](docs/README.md).
+Tài liệu hệ thống được duy trì tại [`control_plane/docs/`](control_plane/docs/README.md).
+
+## Repository map
+
+Đây là một Django modular monolith đang chuẩn bị tách thành các service riêng:
+
+- `annotations/`: annotation workflow và Ground Truth source;
+- `quality/`: model evaluation, metrics và quality reports;
+- `training/`: training run orchestration;
+- `ai_rules/`: versioned rule execution;
+- `control_plane/`: Platform UI/config, project manifest, contracts, events và tài liệu;
+- `cvat/`: CVAT Community annotation engine và custom auto-annotation models.
+
+Đọc [repository map](control_plane/docs/architecture/repository-map.md) và [bounded
+contexts](control_plane/docs/architecture/bounded-contexts.md) trước khi sửa code.
 
 Quick start local:
 
@@ -9,6 +23,9 @@ make up local
 make logs
 make refresh
 ```
+
+Mọi workflow development chạy bằng Docker; không cần cài Python/Django/PyTorch
+trên host. Dùng `make help` để xem lệnh vận hành.
 
 Xem các lệnh hỗ trợ bằng `make help`.
 
@@ -19,12 +36,12 @@ assistance. Raw videos are never modified.
 
 ```bash
 docker compose up -d --build
-docker compose exec web python manage.py createsuperuser
+docker compose exec platform-web python manage.py createsuperuser
 ```
 
 Open <http://localhost:8090>, sign in, create a project and upload a video.
 The first YOLO-World inference downloads the configured model unless a matching
-`.pt` file already exists in the `qc_storage` volume under `models`.
+`.pt` file already exists in the `runtime_artifacts` volume under `models`.
 
 ## Current MVP
 
@@ -35,8 +52,9 @@ The first YOLO-World inference downloads the configured model unless a matching
 - canvas play/pause, speed, frame seek, draw/move/delete and class/status editing;
 - project resume and approved/edited GT JSONL export.
 
-Reviewer groups are created automatically. Add users to `QC Annotator` or
-`QC Reviewer` from Django admin.
+Platform roles are created automatically. Use Platform Members to assign
+`Data Annotator`, `AI Model Engineer`, `AI Rule Engineer`, `AI Ops Engineer`
+or `QA/QC Engineer`; `AI Admin` is a Django superuser.
 
 ## Quality Lab foundation
 

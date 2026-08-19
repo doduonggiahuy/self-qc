@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Customer Projects · Model QC{% endblock %}
+{% block head %}
+<style>
+.module-card.disabled{opacity:.4;filter:saturate(.2);cursor:not-allowed;pointer-events:none}.module-card.disabled h3:after{content:''}
+.workspace-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:28px}.eyebrow{display:block;color:#7dd3fc;font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;margin-bottom:8px}.workspace-hero h1{font-size:32px;margin:0 0 9px}.workspace-hero p{max-width:720px;font-size:16px;margin:0;color:var(--muted)}.module-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-bottom:28px}.module-card{min-height:155px;padding:22px}.module-icon{display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:#263b57;color:#7dd3fc;font-size:20px}.module-card h3{margin:16px 0 6px}.projects-panel{padding:0;overflow:visible;scroll-margin-top:90px}.projects-head{display:flex;justify-content:space-between;align-items:center;padding:22px 24px;border-bottom:1px solid var(--line)}.projects-head h2{margin:0}.project-count{padding:5px 10px;border-radius:999px;background:#243952;color:#bfdbfe;font-size:12px}.projects-table{min-width:800px}.projects-table th{color:#9fb1c5;font-size:11px;text-transform:uppercase;letter-spacing:.08em;background:#142236}.projects-table td{vertical-align:middle}.project-name{color:#fff;font-size:15px}.project-meta{display:block;color:var(--muted);font-size:12px;margin-top:3px}.status-pill{display:inline-flex;padding:4px 9px;border-radius:999px;background:#263b33;color:#bbf7d0;font-size:11px;font-weight:750}.row-actions{display:flex;justify-content:flex-end;align-items:center;gap:8px}.open-project{padding:7px 11px;border-radius:7px;background:#176fa7;color:#fff;font-weight:700}.kebab{position:relative}.kebab summary{list-style:none;cursor:pointer;width:36px;height:36px;display:grid;place-items:center;border:1px solid #3c5575;border-radius:8px;font-size:21px}.kebab summary::-webkit-details-marker{display:none}.kebab-menu{position:absolute;right:0;top:41px;z-index:9;width:180px;padding:6px;background:#132238;border:1px solid var(--line);border-radius:9px;box-shadow:0 12px 30px #0008}.kebab-menu a,.kebab-menu button{display:block;width:100%;padding:9px;text-align:left;border:0;background:transparent}.empty-state{text-align:center;padding:52px!important}@media(max-width:900px){.workspace-hero{align-items:flex-start;flex-direction:column}.module-grid{grid-template-columns:1fr}.projects-panel{overflow-x:auto}}
+</style>
+{% endblock %}
+{% block body %}
+<main class="container">
+  <section class="workspace-hero">
+    <div><span class="eyebrow">Quality Control Platform</span><h1>Customer Projects</h1><p>Mỗi project là workspace của một khách hàng, chứa nhiều rule và kho video Ground Truth có thể dùng lại giữa các rule.</p></div>
+    {% if can_manage %}<a class="button-link" href="{% url 'client-project-create' %}">＋ Tạo customer project</a>{% endif %}
+  </section>
+  <section class="module-grid" aria-label="Các module QC">
+    {% if access.annotation %}<a class="card module-card" href="{% url 'annotation-task-list' %}"><span class="module-icon">▣</span><h3>Annotation Tasks</h3><p class="muted">Xem task được giao và thực hiện labeling.</p></a>{% endif %}
+    {% if access.rules %}<a class="card module-card" href="#customer-projects"><span class="module-icon">⌘</span><h3>Rule Automation</h3><p class="muted">Một project có nhiều rule; mỗi rule dùng nhiều video.</p></a>{% else %}<div class="card module-card disabled"><span class="module-icon">⌘</span><h3>Rule Automation</h3><p class="muted">Không thuộc quyền của role hiện tại.</p></div>{% endif %}
+    {% if access.quality %}<a class="card module-card" href="{% url 'model-quality-workspace' %}"><span class="module-icon">✓</span><h3>Model Quality</h3><p class="muted">Chạy test và theo dõi chất lượng theo customer/rule.</p></a>{% else %}<div class="card module-card disabled"><span class="module-icon">✓</span><h3>Model Quality</h3><p class="muted">Không thuộc quyền của role hiện tại.</p></div>{% endif %}
+  </section>
+  <section class="card projects-panel" id="customer-projects">
+    <header class="projects-head"><div><h2>Dự án khách hàng</h2><p class="section-copy">Quản lý rules, video và annotation theo từng khách hàng.</p></div><span class="project-count">{{ projects|length }} project</span></header>
+    <table class="projects-table"><thead><tr><th>Customer project</th><th>Rules</th><th>Video assets</th><th>Status</th><th></th></tr></thead><tbody>
+    {% for p in projects %}<tr>
+      <td><a class="project-name" href="{% url 'client-project-detail' p.pk %}"><b>{{ p.name }}</b></a><span class="project-meta">Cập nhật {{ p.updated_at|date:"d/m/Y H:i" }}</span></td><td>{{ p.rules.count }}</td><td>{{ p.videos.count }}</td><td><span class="status-pill">{{ p.get_status_display }}</span></td>
+      <td><div class="row-actions"><a class="open-project" href="{% url 'client-project-detail' p.pk %}">Mở project</a>{% if can_manage %}<details class="kebab"><summary aria-label="Tùy chọn project">⋯</summary><div class="kebab-menu"><a href="{% url 'client-project-detail' p.pk %}">Labels, rules & tasks</a><form method="post" action="{% url 'client-project-delete' p.pk %}" onsubmit="return confirm('Xóa project và toàn bộ task/data bên trong?')">{% csrf_token %}<button class="danger">Xóa project</button></form></div></details>{% endif %}</div></td>
+    </tr>{% empty %}<tr><td colspan="5" class="empty-state"><b>Chưa có customer project</b><br><span class="muted">Tạo project đầu tiên để tổ chức rules và video.</span></td></tr>{% endfor %}
+    </tbody></table>
+  </section>
+</main>
+{% endblock %}

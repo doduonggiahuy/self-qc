@@ -28,7 +28,7 @@ class QualityFlowTests(TestCase):
             frame_count=100, coverage="exhaustive",
             video=SimpleUploadedFile("raw.mp4", b"immutable-video"),
         )
-        self.label = LabelClass.objects.create(project=self.project, name="person", prompt="person")
+        self.label = LabelClass.objects.create(project=self.project, name="person")
         self.box = BoxAnnotation.objects.create(
             project=self.project, frame_index=10, label_class=self.label,
             x1=1, y1=2, x2=30, y2=40, review_status="APPROVED",
@@ -305,7 +305,7 @@ class QualityFlowTests(TestCase):
 
     def test_annotator_brand_links_to_workspace_root(self):
         self.client.force_login(self.owner)
-        response = self.client.get(reverse("annotate", args=[self.project.pk]))
+        response = self.client.get(reverse("project-list"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'class="brand" href="/"')
         self.assertContains(response, "MODEL QC STUDIO")
@@ -323,37 +323,6 @@ class QualityFlowTests(TestCase):
         response = self.client.get(reverse("quality-system-dashboard"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Admin Console")
-
-    def test_users_can_select_enabled_model_independently(self):
-        model = InferenceModel.objects.create(
-            key="yolo-world-m", name="YOLO-World M", task="OPEN_VOCAB_DETECTION",
-            model_file=SimpleUploadedFile("yolov8m-worldv2.pt", b"fake-weight"), adapter="quality.adapters.YoloWorldAdapter",
-            enabled=True, status="READY",
-        )
-        self.client.force_login(self.owner)
-        response = self.client.post(
-            reverse("quality-select-inference-model"),
-            data='{"model_id": %s}' % model.pk,
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 200)
-        self.owner.refresh_from_db()
-        self.assertEqual(self.owner.inference_preference.model, model)
-        self.assertFalse(hasattr(self.other, "inference_preference"))
-        model.model_file.delete(save=False)
-
-    def test_user_cannot_select_disabled_or_unsupported_model(self):
-        model = InferenceModel.objects.create(
-            key="onnx-model", name="ONNX", task="OPEN_VOCAB_DETECTION",
-            model_file=SimpleUploadedFile("model.onnx", b"fake-onnx"), adapter="quality.adapters.YoloWorldAdapter", enabled=True,
-        )
-        self.client.force_login(self.owner)
-        response = self.client.post(
-            reverse("quality-select-inference-model"), data='{"model_id": %s}' % model.pk,
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 400)
-        model.model_file.delete(save=False)
 
     def test_staff_can_delete_model_registry_record(self):
         self.owner.is_staff = True

@@ -14,7 +14,7 @@ from django.urls import reverse
 
 from annotations.models import ClientProject, Project
 from .forms import EvaluationDatasetForm, InferenceModelForm, TestCaseForm
-from .models import EvaluationDataset, EvaluationModel, InferenceModel, ModelEvaluationFrame, ModelEvaluationRun, TestCase, TestRun, UserInferencePreference
+from .models import EvaluationDataset, EvaluationModel, InferenceModel, ModelEvaluationFrame, ModelEvaluationRun, TestCase, TestRun
 from .datasets import (
     append_upload_chunk,
     finalize_chunked_upload,
@@ -499,23 +499,6 @@ def delete_system_model(request, model_pk):
     model.delete()
     messages.success(request, f"Đã xóa model {model_name} và file weight do registry quản lý.")
     return redirect("quality-system-models")
-
-
-@login_required
-@require_POST
-def select_inference_model(request):
-    try:
-        payload = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({"error": "JSON không hợp lệ."}, status=400)
-    model_id = payload.get("model_id")
-    model = None
-    if model_id:
-        model = get_object_or_404(InferenceModel, pk=model_id, enabled=True)
-        if not model.is_selectable:
-            return JsonResponse({"error": "Model chưa có adapter inference tương thích."}, status=400)
-    UserInferencePreference.objects.update_or_create(user=request.user, defaults={"model": model})
-    return JsonResponse({"ok": True, "model_name": model.name if model else "System default"})
 
 
 class _ArtifactReference:

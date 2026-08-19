@@ -2,41 +2,71 @@ import hashlib
 import io
 import json
 import logging
-import os
 
 import cv2
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.db.models import Q
 from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from .forms import ClientProjectForm, ProjectForm, RuleForm
-from .inference import predict
-from .models import BoxAnnotation, ClientProject, LabelClass, Project, Rule
-from .video import probe, read_frame
-from quality.models import InferenceModel, UserInferencePreference
+from .forms import AnnotationTaskForm, AutoAnnotationFunctionForm, ClientProjectForm, ProjectForm, ProjectLabelForm, RuleForm
+from .application.project_schema import create_project_schema
+from .models import AnnotationJob, AnnotationShape, AnnotationTask, AutoAnnotationFunction, AutoAnnotationRun, BoxAnnotation, ClientProject, LabelClass, Project, Rule
+from .media import delete_project_media, ingest_task_uploads, read_project_frame
 
 logger = logging.getLogger(__name__)
 
 
 def _can_edit(user, project):
-    return user.is_superuser or project.owner_id == user.id or user.has_perm("annotations.edit_all_projects")
+    return _can_view_annotation(user, project) and (user.is_superuser or project.owner_id == user.id or user.has_perm("annotations.change_boxannotation"))
+
+
+def _can_view_annotation(user, project):
+    if user.is_superuser or project.owner_id == user.id or _can_operate_annotation(user):
+        return True
+    task = project.annotation_task
+    return bool(task and (task.assignees.filter(pk=user.pk).exists() or task.reviewers.filter(pk=user.pk).exists() or task.created_by_id == user.id))
+
+
+def _is_root(user):
+    return user.is_superuser
+
+
+def _require_root(user):
+    if not _is_root(user):
+        raise PermissionDenied
+
+
+def _can_create_annotation_task(user):
+    return _is_root(user) or user.groups.filter(name="Data Annotator").exists()
+
+
+def _can_operate_annotation(user):
+    """Annotation team leads use the same Data Annotator role in the MVP.
+
+    Project membership/team-lead scopes will be introduced with Annotation v2.
+    Until then, this grants operational access only to the annotation domain,
+    never to customer-project or AI-rule administration.
+    """
+    return _can_create_annotation_task(user)
+
+
+def _can_use_task(user, task):
+    return _can_operate_annotation(user) or task.created_by_id == user.id or task.assignees.filter(pk=user.pk).exists() or task.reviewers.filter(pk=user.pk).exists()
 
 
 def _project(user, pk, edit=False):
     obj = get_object_or_404(Project, pk=pk)
-    if edit and not _can_edit(user, obj):
+    if not _can_view_annotation(user, obj) or (edit and not _can_edit(user, obj)):
         raise PermissionDenied
     return obj
 
 
 def _client_project(user, pk):
-    obj = get_object_or_404(ClientProject, pk=pk)
-    if not (user.is_superuser or obj.owner_id == user.id or user.has_perm("annotations.edit_all_projects")):
-        raise PermissionDenied
-    return obj
+    return get_object_or_404(ClientProject, pk=pk)
 
 
 def _box_json(box):
@@ -49,33 +79,31 @@ def _box_json(box):
         "confidence": box.confidence,
         "source": box.source,
         "status": box.review_status,
-        "prompt": box.prompt,
     }
 
 
 @login_required
 def project_list(request):
-    projects = ClientProject.objects.prefetch_related("videos", "rules")
-    if not (request.user.has_perm("annotations.edit_all_projects") or request.user.is_superuser):
-        projects = projects.filter(owner=request.user)
-    return render(request, "annotations/project_list.html", {"projects": projects})
+    projects = ClientProject.objects.prefetch_related("annotation_tasks__videos", "rules", "labels")
+    return render(request, "annotations/project_list.html", {"projects": projects, "can_manage": _is_root(request.user)})
 
 
 @login_required
 def ground_truth_list(request):
-    videos = Project.objects.select_related("client_project", "owner").prefetch_related("classes", "rules")
-    if not (request.user.has_perm("annotations.edit_all_projects") or request.user.is_superuser):
-        videos = videos.filter(owner=request.user)
-    return render(request, "annotations/ground_truth_list.html", {"videos": videos})
+    videos = Project.objects.select_related("client_project", "annotation_task", "owner").prefetch_related("classes")
+    return render(request, "annotations/ground_truth_list.html", {"videos": videos, "can_manage": _is_root(request.user)})
 
 
 @login_required
 def client_project_create(request):
+    _require_root(request.user)
     form = ClientProjectForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
-        item = form.save(commit=False)
-        item.owner = request.user
-        item.save()
+        with transaction.atomic():
+            item = form.save(commit=False)
+            item.owner = request.user
+            item.save()
+            create_project_schema(item, form.cleaned_data["labels_schema"], form.cleaned_data["rules_schema"])
         return redirect("client-project-detail", pk=item.pk)
     return render(request, "annotations/client_project_form.html", {"form": form})
 
@@ -83,19 +111,213 @@ def client_project_create(request):
 @login_required
 def client_project_detail(request, pk):
     item = _client_project(request.user, pk)
-    rule_form = RuleForm(item, request.POST or None)
-    if request.method == "POST" and rule_form.is_valid():
+    can_manage = _is_root(request.user)
+    if request.method == "POST":
+        _require_root(request.user)
+    rule_form = RuleForm(request.POST or None) if can_manage else None
+    label_form = ProjectLabelForm(request.POST or None) if can_manage else None
+    if request.method == "POST" and request.POST.get("action") == "rule" and rule_form.is_valid():
         rule = rule_form.save(commit=False)
         rule.client_project = item
         rule.save()
-        rule_form.save_m2m()
         return redirect("client-project-detail", pk=item.pk)
-    return render(request, "annotations/client_project_detail.html", {"client_project": item, "rule_form": rule_form})
+    if request.method == "POST" and request.POST.get("action") == "label" and label_form.is_valid():
+        label = label_form.save(commit=False)
+        label.client_project = item
+        label.order = item.labels.count()
+        label.save()
+        return redirect("client-project-detail", pk=item.pk)
+    return render(request, "annotations/client_project_detail.html", {
+        "client_project": item,
+        "rule_form": rule_form,
+        "label_form": label_form,
+        "can_manage": can_manage,
+        "can_create_task": _can_create_annotation_task(request.user),
+        "can_operate_annotation": _can_operate_annotation(request.user),
+    })
+
+
+@login_required
+def annotation_task_list(request):
+    tasks = AnnotationTask.objects.select_related("client_project").prefetch_related("rules", "videos")
+    if not _can_operate_annotation(request.user):
+        tasks = tasks.filter(Q(assignees=request.user) | Q(reviewers=request.user) | Q(created_by=request.user)).distinct()
+    return render(request, "annotations/task_list.html", {"tasks": tasks, "can_manage": _is_root(request.user)})
+
+
+@login_required
+def annotation_task_create(request, pk):
+    if not _can_create_annotation_task(request.user):
+        raise PermissionDenied
+    client_project = _client_project(request.user, pk)
+    # A Data Annotator may be the team lead for this project.  The role may
+    # create and assign annotation work, while Root still owns projects/rules.
+    can_assign = _can_operate_annotation(request.user)
+    form = AnnotationTaskForm(client_project, request.POST or None, request.FILES or None, allow_assignment=can_assign)
+    if request.method == "POST" and form.is_valid():
+        try:
+            with transaction.atomic():
+                task = form.save(commit=False)
+                task.client_project = client_project
+                task.created_by = request.user
+                task.save()
+                form.save_m2m()
+                ingest_task_uploads(task, request.user, form.cleaned_data.get("data_files", []))
+        except Exception as exc:
+            form.add_error("data_files", f"Không thể xử lý data: {exc}")
+        else:
+            return redirect("annotation-task-detail", pk=task.pk)
+    return render(request, "annotations/task_form.html", {"form": form, "client_project": client_project, "editing": False})
+
+
+@login_required
+def annotation_task_edit(request, pk):
+    task = get_object_or_404(AnnotationTask.objects.select_related("client_project"), pk=pk)
+    if not _can_operate_annotation(request.user):
+        raise PermissionDenied
+    form = AnnotationTaskForm(
+        task.client_project, request.POST or None, request.FILES or None,
+        instance=task, allow_assignment=True,
+    )
+    if request.method == "POST" and form.is_valid():
+        try:
+            with transaction.atomic():
+                task = form.save()
+                ingest_task_uploads(task, request.user, form.cleaned_data.get("data_files", []))
+        except Exception as exc:
+            form.add_error("data_files", f"Không thể xử lý data: {exc}")
+        else:
+            return redirect("annotation-task-detail", pk=task.pk)
+    return render(request, "annotations/task_form.html", {
+        "form": form, "client_project": task.client_project, "task": task, "editing": True,
+    })
+
+
+@login_required
+@require_POST
+def annotation_task_delete(request, pk):
+    task = get_object_or_404(AnnotationTask.objects.prefetch_related("videos"), pk=pk)
+    if not _can_operate_annotation(request.user):
+        raise PermissionDenied
+    project_pk = task.client_project_id
+    for media in task.videos.all():
+        delete_project_media(media)
+    task.delete()
+    return redirect("client-project-detail", pk=project_pk)
+
+
+@login_required
+def annotation_task_detail(request, pk):
+    task = get_object_or_404(AnnotationTask.objects.select_related("client_project").prefetch_related("rules", "videos"), pk=pk)
+    if not _can_use_task(request.user, task):
+        raise PermissionDenied
+    functions = AutoAnnotationFunction.objects.filter(enabled=True)
+    function_specs = {str(item.pk): item.spec for item in functions}
+    project_labels = [
+        {"name": label.name, "type": label.label_type, "color": label.color,
+         "points": [point.name for point in label.skeleton_points.all()]}
+        for label in task.client_project.labels.prefetch_related("skeleton_points")
+    ]
+    return render(request, "annotations/task_detail.html", {
+        "task": task, "can_upload": _can_create_annotation_task(request.user),
+        "auto_functions": functions, "auto_runs": task.auto_annotation_runs.select_related("function")[:10],
+        "auto_function_specs": function_specs, "auto_project_labels": project_labels,
+        "can_manage_task": _can_operate_annotation(request.user),
+    })
+
+
+@login_required
+@require_POST
+def start_auto_annotation(request, pk):
+    task = get_object_or_404(AnnotationTask.objects.select_related("client_project"), pk=pk)
+    if not _can_use_task(request.user, task):
+        raise PermissionDenied
+    if task.auto_annotation_runs.filter(status__in=["QUEUED", "RUNNING"]).exists():
+        return JsonResponse({"error": "Task đã có một Auto Annotation run đang xử lý."}, status=409)
+    function = get_object_or_404(AutoAnnotationFunction, pk=request.POST.get("function"), enabled=True)
+    from .auto_annotation import default_mapping, validate_mapping
+    mapping = default_mapping(function, task.client_project)
+    raw_mapping = request.POST.get("mapping", "").strip()
+    if raw_mapping:
+        try:
+            mapping = json.loads(raw_mapping)
+        except ValueError:
+            return JsonResponse({"error": "Mapping JSON không hợp lệ."}, status=400)
+    try:
+        mapping = validate_mapping(function, task.client_project, mapping)
+        threshold = float(request.POST.get("threshold", 0.25))
+        if not 0 <= threshold <= 1:
+            raise ValueError
+    except (ValueError, ValidationError) as exc:
+        return JsonResponse({"error": str(exc) or "Threshold phải nằm trong khoảng 0–1."}, status=400)
+    total = sum(job.stop_frame - job.start_frame + 1 for job in task.jobs.all())
+    if total <= 0:
+        return JsonResponse({"error": "Task chưa có Job/Data để annotate."}, status=400)
+    run = AutoAnnotationRun.objects.create(
+        task=task, function=function, threshold=threshold,
+        cleanup=request.POST.get("cleanup") == "on", mapping=mapping,
+        progress_total=total, requested_by=request.user,
+    )
+    from .tasks import run_auto_annotation
+    try:
+        result = run_auto_annotation.delay(run.pk)
+    except Exception as exc:
+        run.status = "FAILED"
+        run.error = f"Không thể đưa run vào annotation queue: {exc}"
+        run.save(update_fields=["status", "error"])
+        return redirect("annotation-task-detail", pk=task.pk)
+    run.celery_task_id = result.id or ""
+    run.save(update_fields=["celery_task_id"])
+    return redirect("annotation-task-detail", pk=task.pk)
+
+
+@login_required
+def auto_annotation_status(request, pk, run_pk):
+    task = get_object_or_404(AnnotationTask, pk=pk)
+    if not _can_use_task(request.user, task):
+        raise PermissionDenied
+    run = get_object_or_404(task.auto_annotation_runs.select_related("function"), pk=run_pk)
+    return JsonResponse({
+        "id": run.pk, "status": run.status, "progress": run.progress_current,
+        "total": run.progress_total, "shapes_created": run.shapes_created,
+        "error": run.error, "function": run.function.name,
+    })
+
+
+@login_required
+@require_POST
+def cancel_auto_annotation(request, pk, run_pk):
+    task = get_object_or_404(AnnotationTask, pk=pk)
+    if not _can_use_task(request.user, task):
+        raise PermissionDenied
+    run = get_object_or_404(task.auto_annotation_runs, pk=run_pk, status__in=["QUEUED", "RUNNING"])
+    run.status = "CANCELLED"
+    run.save(update_fields=["status"])
+    return redirect("annotation-task-detail", pk=task.pk)
+
+
+@login_required
+def auto_annotation_functions(request):
+    _require_root(request.user)
+    edit_id = request.GET.get("edit")
+    instance = get_object_or_404(AutoAnnotationFunction, pk=edit_id) if edit_id else None
+    form = AutoAnnotationFunctionForm(request.POST or None, instance=instance)
+    if request.method == "POST" and form.is_valid():
+        function = form.save(commit=False)
+        function.spec = form.cleaned_data["spec_json"]
+        if not function.pk:
+            function.created_by = request.user
+        function.save()
+        return redirect("auto-annotation-functions")
+    return render(request, "annotations/auto_annotation_functions.html", {
+        "functions": AutoAnnotationFunction.objects.all(), "form": form, "editing": instance,
+    })
 
 
 @login_required
 @require_POST
 def client_project_delete(request, pk):
+    _require_root(request.user)
     item = _client_project(request.user, pk)
     item.delete()
     return redirect("project-list")
@@ -104,6 +326,7 @@ def client_project_delete(request, pk):
 @login_required
 @require_POST
 def rule_delete(request, pk, rule_pk):
+    _require_root(request.user)
     item = _client_project(request.user, pk)
     get_object_or_404(item.rules, pk=rule_pk).delete()
     return redirect("client-project-detail", pk=item.pk)
@@ -112,57 +335,101 @@ def rule_delete(request, pk, rule_pk):
 @login_required
 @require_POST
 def video_delete(request, pk, video_pk):
-    item = _client_project(request.user, pk)
-    video = get_object_or_404(item.videos, pk=video_pk)
-    video.video.delete(save=False)
+    if not _can_create_annotation_task(request.user):
+        raise PermissionDenied
+    task = get_object_or_404(AnnotationTask, pk=pk)
+    if not _can_use_task(request.user, task):
+        raise PermissionDenied
+    video = get_object_or_404(task.videos, pk=video_pk)
+    delete_project_media(video)
     video.delete()
-    return redirect("client-project-detail", pk=item.pk)
+    return redirect("annotation-task-detail", pk=task.pk)
 
 
 @login_required
 def project_create(request):
-    client_pk = request.GET.get("client") or request.POST.get("client_project")
-    client = _client_project(request.user, client_pk) if client_pk else None
+    if not _can_create_annotation_task(request.user):
+        raise PermissionDenied
+    task_pk = request.GET.get("task") or request.POST.get("annotation_task")
+    task = get_object_or_404(AnnotationTask.objects.select_related("client_project"), pk=task_pk) if task_pk else None
+    if task is None:
+        raise Http404("Video must be uploaded into an annotation task.")
+    if not _can_use_task(request.user, task):
+        raise PermissionDenied
     form = ProjectForm(request.POST or None, request.FILES or None)
     if request.method == "POST" and form.is_valid():
-        with transaction.atomic():
-            project = form.save(commit=False)
-            project.owner = request.user
-            project.client_project = client
-            project.save()
-            try:
-                meta = probe(project.video.path)
-            except Exception as exc:
-                project.video.delete(save=False)
-                project.delete()
-                form.add_error("video", str(exc))
-            else:
-                Project.objects.filter(pk=project.pk).update(**meta)
-                colors = ["#00e676", "#40c4ff", "#ffea00", "#ff5252", "#e040fb"]
-                for index, line in enumerate(form.cleaned_data["classes"].splitlines()):
-                    if not line.strip():
-                        continue
-                    parts = [part.strip() for part in line.split("|")]
-                    name = parts[0]
-                    prompt = parts[1] if len(parts) > 1 and parts[1] else name
-                    try:
-                        confidence = max(0.01, min(1.0, float(parts[2]))) if len(parts) > 2 else 0.25
-                    except ValueError:
-                        confidence = 0.25
-                    LabelClass.objects.create(project=project, name=name, prompt=prompt, confidence=confidence, color=colors[index % len(colors)], order=index)
-                return redirect("annotate", pk=project.pk)
-    return render(request, "annotations/project_form.html", {"form": form, "client_project": client})
+        try:
+            jobs = ingest_task_uploads(
+                task, request.user, form.cleaned_data["data_files"],
+                name=form.cleaned_data.get("name"), coverage=form.cleaned_data["coverage"],
+            )
+        except Exception as exc:
+            form.add_error("data_files", str(exc))
+        else:
+            return redirect("annotation-job", pk=jobs[0].pk)
+    return render(request, "annotations/project_form.html", {"form": form, "task": task})
 
 
 @login_required
 def annotate(request, pk):
     project = _project(request.user, pk, edit=True)
-    selectable_models = [model for model in InferenceModel.objects.filter(enabled=True) if model.is_selectable]
-    preference = UserInferencePreference.objects.filter(user=request.user).select_related("model").first()
-    return render(request, "annotations/annotate.html", {
-        "project": project, "classes": project.classes.all(), "inference_models": selectable_models,
-        "selected_inference_model_id": preference.model_id if preference else None,
-    })
+    if project.annotation_task_id and hasattr(project, "job"):
+        return redirect("annotation-job", pk=project.job.pk)
+    raise Http404("Legacy prompt annotator has been removed. Open an Annotation Job instead.")
+
+
+@login_required
+def annotation_job(request, pk):
+    job = get_object_or_404(
+        AnnotationJob.objects.select_related("task__client_project", "video").prefetch_related(
+            "task__client_project__labels__attributes",
+            "task__client_project__labels__skeleton_points",
+            "task__client_project__labels__skeleton_edges__from_point",
+            "task__client_project__labels__skeleton_edges__to_point",
+        ), pk=pk,
+    )
+    if not _can_use_task(request.user, job.task):
+        raise PermissionDenied
+    labels = job.task.client_project.labels.all()
+    schema = [{
+        "id": label.id, "name": label.name, "type": label.label_type, "color": label.color,
+        "attributes": [{"id": attr.id, "name": attr.name, "input_type": attr.input_type, "values": attr.values, "default_value": attr.default_value} for attr in label.attributes.all()],
+        "points": [{"id": point.id, "name": point.name, "x": point.x, "y": point.y, "color": point.color} for point in label.skeleton_points.all()],
+        "edges": [{"from": edge.from_point.name, "to": edge.to_point.name} for edge in label.skeleton_edges.all()],
+    } for label in labels]
+    if job.state == "new":
+        job.state = "in_progress"
+        job.save(update_fields=["state", "updated_at"])
+    return render(request, "annotations/job_annotate.html", {"job": job, "project": job.video, "label_schema": schema})
+
+
+@login_required
+def job_frame_data(request, pk, frame_index):
+    job = get_object_or_404(AnnotationJob.objects.select_related("task"), pk=pk)
+    if not _can_use_task(request.user, job.task):
+        raise PermissionDenied
+    shapes = job.shapes.filter(frame_index=frame_index).select_related("label")
+    return JsonResponse({"shapes": [{"id": shape.id, "label_id": shape.label_id, "label_name": shape.label.name, "type": shape.shape_type, "points": shape.points, "attributes": shape.attributes, "source": shape.source, "confidence": shape.confidence} for shape in shapes]})
+
+
+@login_required
+@require_POST
+def save_job_frame(request, pk, frame_index):
+    job = get_object_or_404(AnnotationJob.objects.select_related("task__client_project"), pk=pk)
+    if not _can_use_task(request.user, job.task):
+        raise PermissionDenied
+    payload = json.loads(request.body)
+    allowed_labels = {label.id: label for label in job.task.client_project.labels.all()}
+    with transaction.atomic():
+        job.shapes.filter(frame_index=frame_index).delete()
+        created = []
+        for item in payload.get("shapes", []):
+            label = allowed_labels.get(int(item.get("label_id", 0)))
+            if not label or item.get("type") not in {"rectangle", "skeleton"} or item.get("type") != label.label_type:
+                continue
+            shape = AnnotationShape.objects.create(job=job, frame_index=frame_index, label=label, shape_type=item["type"], points=item.get("points", []), attributes=item.get("attributes", {}), source=item.get("source", "manual"), confidence=item.get("confidence"), created_by=request.user, updated_by=request.user)
+            created.append(shape.id)
+    return JsonResponse({"ok": True, "ids": created})
 
 
 @login_required
@@ -170,7 +437,7 @@ def frame_image(request, pk, frame_index):
     project = _project(request.user, pk)
     if frame_index >= project.frame_count:
         raise Http404
-    frame = read_frame(project.video.path, frame_index)
+    frame = read_project_frame(project, frame_index)
     ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
     if not ok:
         raise Http404
@@ -182,42 +449,6 @@ def frame_data(request, pk, frame_index):
     project = _project(request.user, pk)
     boxes = project.boxes.filter(frame_index=frame_index).select_related("label_class")
     return JsonResponse({"boxes": [_box_json(box) for box in boxes]})
-
-
-@login_required
-@require_POST
-def infer_frame(request, pk, frame_index):
-    project = _project(request.user, pk, edit=True)
-    classes = list(project.classes.filter(enabled=True))
-    if not classes:
-        return JsonResponse({"error": "Không có class nào được bật để inference."}, status=400)
-    if os.getenv("INFERENCE_EXECUTION") == "worker":
-        try:
-            preference = UserInferencePreference.objects.filter(user=request.user).first()
-            from quality.tasks import infer_annotation_frame
-            payload = infer_annotation_frame.delay(project.pk, frame_index, preference.model_id if preference else None).get(timeout=3600)
-            return JsonResponse(payload)
-        except Exception as exc:
-            logger.exception("Worker inference failed for project=%s frame=%s", project.pk, frame_index)
-            return JsonResponse({"error": f"Inference worker thất bại: {exc}"}, status=500)
-    try:
-        frame = read_frame(project.video.path, frame_index)
-        preference = UserInferencePreference.objects.filter(user=request.user).select_related("model").first()
-        selected_model = preference.model if preference and preference.model and preference.model.is_selectable else None
-        proposals = predict(frame, classes, selected_model)
-    except Exception as exc:
-        logger.exception("Inference failed for project=%s frame=%s", project.pk, frame_index)
-        return JsonResponse({"error": f"Inference thất bại: {exc}"}, status=500)
-    # Preserve all human-reviewed GT; only replace unreviewed proposals.
-    project.boxes.filter(frame_index=frame_index, review_status="PREDICTED").delete()
-    created = [BoxAnnotation.objects.create(
-        project=project, frame_index=frame_index,
-        label_class=item["label_class"], x1=item["bbox"][0], y1=item["bbox"][1],
-        x2=item["bbox"][2], y2=item["bbox"][3], confidence=item["confidence"],
-        source="YOLO_WORLD", review_status="PREDICTED", prompt=item["prompt"],
-        created_by=request.user, updated_by=request.user,
-    ) for item in proposals]
-    return JsonResponse({"boxes": [_box_json(box) for box in created]})
 
 
 @login_required
@@ -243,38 +474,6 @@ def save_frame(request, pk, frame_index):
         project.boxes.filter(frame_index=frame_index).exclude(pk__in=keep).delete()
         project.current_frame = frame_index
         project.save(update_fields=["current_frame", "updated_at"])
-    return JsonResponse({"ok": True})
-
-
-@login_required
-@require_POST
-def save_classes(request, pk):
-    project = _project(request.user, pk, edit=True)
-    payload = json.loads(request.body)
-    with transaction.atomic():
-        deleted_ids = [int(value) for value in payload.get("deleted_ids", []) if str(value).isdigit()]
-        if deleted_ids:
-            deleting = project.classes.filter(pk__in=deleted_ids)
-            project.boxes.filter(label_class__in=deleting).delete()
-            deleting.delete()
-        for raw in payload.get("classes", []):
-            item_id = raw.get("id")
-            item = get_object_or_404(project.classes, pk=item_id) if item_id else LabelClass(project=project, order=project.classes.count())
-            name = str(raw.get("name", "")).strip()
-            prompt = str(raw.get("prompt", "")).strip()
-            if not name or not prompt:
-                return JsonResponse({"error": "Class và prompt không được để trống"}, status=400)
-            item.name = name
-            item.prompt = prompt
-            item.enabled = bool(raw.get("enabled", True))
-            try:
-                item.confidence = max(0.01, min(1.0, float(raw.get("confidence", 0.25))))
-            except (TypeError, ValueError):
-                return JsonResponse({"error": "Confidence phải là số từ 0.01 đến 1.00"}, status=400)
-            if not item.color:
-                colors = ["#00e676", "#40c4ff", "#ffea00", "#ff5252", "#e040fb"]
-                item.color = colors[project.classes.count() % len(colors)]
-            item.save()
     return JsonResponse({"ok": True})
 
 
