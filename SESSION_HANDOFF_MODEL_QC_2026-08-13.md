@@ -1,4 +1,4 @@
-# Model QC — session handoff (2026-08-13)
+# Freeflow — session handoff (2026-08-13)
 
 ## 1. Mục tiêu đã thống nhất
 
@@ -21,12 +21,12 @@ Xây một repo QC độc lập hoàn toàn với `safety-rules`, có giao diệ
 Repo hiện đang tạm nằm tại:
 
 ```text
-/home/ai/Documents/staging/safety-rules/model-qc
+/home/ai/Documents/staging/safety-rules/freeflow
 ```
 
-Đây là **nested Git repo độc lập**, branch `main`; chưa commit. Người dùng xác nhận sẽ tách hẳn `model-qc` ra khỏi `safety-rules`, vì vậy không được tạo dependency bằng relative path tới parent repo và không được đưa module này vào Git history của `safety-rules`.
+Đây là **nested Git repo độc lập**, branch `main`; chưa commit. Người dùng xác nhận sẽ tách hẳn `freeflow` ra khỏi `safety-rules`, vì vậy không được tạo dependency bằng relative path tới parent repo và không được đưa module này vào Git history của `safety-rules`.
 
-Đường dẫn trên chỉ là vị trí tạm thời. Sau khi tách, mọi lệnh phải chạy từ root mới của `model-qc`; code ứng dụng hiện không phụ thuộc vào tên/path của parent repo.
+Đường dẫn trên chỉ là vị trí tạm thời. Sau khi tách, mọi lệnh phải chạy từ root mới của `freeflow`; code ứng dụng hiện không phụ thuộc vào tên/path của parent repo.
 
 ## 2. Trạng thái hiện tại
 
@@ -38,7 +38,7 @@ username: admin
 password: admin
 ```
 
-Chỉ service `model_qc_web` đang chạy. Các service backend/build/pipeline khác đã được giữ ở trạng thái dừng để tránh lag.
+Chỉ service `freeflow_web` đang chạy. Các service backend/build/pipeline khác đã được giữ ở trạng thái dừng để tránh lag.
 
 Kết quả xác minh trong container:
 
@@ -90,7 +90,7 @@ annotations/inference.py    YOLO-World lazy loader/inference
 annotations/video.py        Probe/extract video frame
 templates/annotations/      UI project và canvas annotator
 annotations/tests.py        Test quyền, save prompt/bbox, export
-docker-compose.yml          Service model-qc độc lập
+docker-compose.yml          Service freeflow độc lập
 Dockerfile                  Python + CUDA-compatible PyTorch build
 README.md                   Hướng dẫn sử dụng ngắn
 ```
@@ -107,7 +107,7 @@ README.md                   Hướng dẫn sử dụng ngắn
 ## 5. Lệnh vận hành
 
 ```bash
-cd /home/ai/Documents/staging/safety-rules/model-qc
+cd /home/ai/Documents/staging/safety-rules/freeflow
 
 # Bật module QC
 docker compose up -d
@@ -164,7 +164,7 @@ Chưa có browser/E2E test cho thao tác canvas và chưa test inference thực 
 
 - Tài khoản `admin/admin` chỉ dùng local; phải đổi khi đưa lên môi trường dùng chung.
 - Nested repo đang có toàn bộ file ở trạng thái untracked. Kiểm tra rồi tạo initial commit trước khi phát triển tiếp.
-- Volume hiện tại: `model-qc_qc_data`, `model-qc_qc_media`, `model-qc_qc_models`.
+- Volume hiện tại: `freeflow_qc_data`, `freeflow_qc_media`, `freeflow_qc_models`.
 - Không bật lại toàn bộ safety pipeline chỉ để test annotator; module này có thể chạy độc lập.
 
 ## 9. Feedback và bugfix sau lần bàn giao đầu
@@ -252,7 +252,7 @@ Source local đã được chỉnh cho các chức năng trên, nhưng người 
 
 - Source code local: đã có thay đổi.
 - Kiểm tra local: `manage.py check` pass, 6/6 tests pass, `makemigrations --check` báo không thiếu migration, `git diff --check` pass.
-- Container `model_qc_web` hiện tại: vẫn là image trước các thay đổi mới nhất.
+- Container `freeflow_web` hiện tại: vẫn là image trước các thay đổi mới nhất.
 - Database volume hiện tại: chưa apply migration `0002_labelclass_confidence`.
 - Chưa browser-test UI mới và chưa test infer toàn video.
 
@@ -298,7 +298,7 @@ Lưu ý: đây chỉ là MVP. Video dài sẽ tạo rất nhiều request và kh
 Sau khi đọc file này, cần hoàn tất deployment source mới bằng:
 
 ```bash
-cd /home/ai/Documents/staging/safety-rules/model-qc
+cd /home/ai/Documents/staging/safety-rules/freeflow
 docker compose up -d --build web
 docker compose exec -T web python manage.py migrate
 docker compose exec -T web python manage.py test
@@ -377,14 +377,14 @@ Metrics/report nên có:
 - latency/timestamp mismatch;
 - traceability tới test run, video hash, model/config version.
 
-## 14. Tách `model-qc` khỏi `safety-rules`
+## 14. Tách `freeflow` khỏi `safety-rules`
 
 ### Ranh giới repository
 
-`model-qc` phải là một sản phẩm/repo độc lập:
+`freeflow` phải là một sản phẩm/repo độc lập:
 
 - Git repository riêng.
-- Docker Compose project riêng: `model-qc`.
+- Docker Compose project riêng: `freeflow`.
 - Database/media/model volumes riêng.
 - Dependency/README/env/migrations/tests riêng.
 - Không import Python module từ `safety-rules`.
@@ -396,7 +396,7 @@ Metrics/report nên có:
 Nested repo đã có `.git` riêng nhưng chưa có initial commit; toàn bộ file đang untracked. Conversation mới nên kiểm tra:
 
 ```bash
-cd /home/ai/Documents/staging/safety-rules/model-qc
+cd /home/ai/Documents/staging/safety-rules/freeflow
 git status
 git rev-parse --show-toplevel
 ```
@@ -405,32 +405,32 @@ Sau khi review source, nên tạo initial commit **bên trong nested repo trư�
 
 ```bash
 git add .
-git commit -m "feat: bootstrap standalone model QC studio"
+git commit -m "feat: bootstrap standalone Freeflow studio"
 ```
 
-Không chạy `git add model-qc` từ root `safety-rules`.
+Không chạy `git add freeflow` từ root `safety-rules`.
 
 ### Di chuyển source
 
 Nên dừng riêng service QC trước khi di chuyển, không xóa volume:
 
 ```bash
-cd /home/ai/Documents/staging/safety-rules/model-qc
+cd /home/ai/Documents/staging/safety-rules/freeflow
 docker compose stop
 ```
 
-Sau đó move cả thư mục `model-qc`, bao gồm `.git`, sang vị trí repo mới. Không dùng `docker compose down -v`.
+Sau đó move cả thư mục `freeflow`, bao gồm `.git`, sang vị trí repo mới. Không dùng `docker compose down -v`.
 
 Ví dụ đích (chỉ là gợi ý, cần người dùng xác nhận path thực tế):
 
 ```text
-/home/ai/Documents/staging/model-qc
+/home/ai/Documents/staging/freeflow
 ```
 
 Sau khi move:
 
 ```bash
-cd /path/to/new/model-qc
+cd /path/to/new/freeflow
 git rev-parse --show-toplevel
 docker compose up -d --build web
 ```
@@ -440,23 +440,23 @@ docker compose up -d --build web
 Compose đã khai báo cố định:
 
 ```yaml
-name: model-qc
+name: freeflow
 ```
 
 Do đó đổi đường dẫn thư mục không làm đổi Compose project name. Các volume cũ vẫn là:
 
 ```text
-model-qc_qc_data
-model-qc_qc_media
-model-qc_qc_models
+freeflow_qc_data
+freeflow_qc_media
+freeflow_qc_models
 ```
 
-Nếu giữ nguyên `name: model-qc`, compose tại path mới sẽ dùng lại các volume trên, nên DB, video RAW, bbox và model weights không bị mất.
+Nếu giữ nguyên `name: freeflow`, compose tại path mới sẽ dùng lại các volume trên, nên DB, video RAW, bbox và model weights không bị mất.
 
 Trước và sau khi move nên xác minh:
 
 ```bash
-docker volume ls | grep model-qc
+docker volume ls | grep freeflow
 docker compose config --volumes
 docker compose up -d
 docker compose exec -T web python manage.py migrate

@@ -23,7 +23,7 @@ docker-compose.yml  Local runtime: web, worker, PostgreSQL, Redis
 
 `cvat/` là source tree của CVAT Community và custom YOLO26 Nuclio functions.
 Nó là annotation engine được tích hợp/khám phá, không phải Django app của
-Model QC. Khi tách repo, thư mục này sẽ trở thành `annotation-service`.
+Freeflow. Khi tách repo, thư mục này sẽ trở thành `annotation-service`.
 
 ## Rule of thumb
 

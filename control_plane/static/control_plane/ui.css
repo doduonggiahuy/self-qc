@@ -1,0 +1,342 @@
+/* Freeflow UI — Ant Design anatomy + Bootstrap responsive behavior,
+   rendered with a Linear / Vercel / Roboflow visual language. */
+:root {
+  --ff-canvas: 1440px;
+  --ff-content: 1320px;
+  --ff-space-1: 4px;
+  --ff-space-2: 8px;
+  --ff-space-3: 12px;
+  --ff-space-4: 16px;
+  --ff-space-5: 24px;
+  --ff-space-6: 32px;
+  --ff-space-7: 40px;
+  --ff-control: 40px;
+  --ff-row: 52px;
+}
+
+body { font-size: 15px; }
+.container { width: min(100%, var(--ff-canvas)); padding: 48px 60px 80px; }
+.container.narrow, .narrow { width: min(100%, 1080px); }
+.page-head { margin-bottom: 32px; }
+.page-head h1 { margin: 4px 0 8px; font-size: clamp(30px, 2.3vw, 40px); }
+.section-copy { max-width: 760px; font-size: 14px; line-height: 1.65; }
+.eyebrow { color: #9199f4; }
+
+.card { margin-bottom: 20px; padding: 24px; border-radius: 10px; }
+.grid-two { gap: 20px; }
+.feature-grid, .module-grid { gap: 16px; }
+.stats-grid { gap: 16px; }
+
+button, .button-link { min-height: var(--ff-control); padding: 9px 15px; }
+input:not([type=checkbox]):not([type=radio]):not([type=color]):not([type=range]),
+select, textarea { min-height: var(--ff-control); padding: 9px 12px; }
+.field, .stack p { gap: 8px; }
+.field label, .stack label { font-size: 13px; }
+.help, .help-line { line-height: 1.5; }
+
+table { font-size: 14px; }
+th { height: 42px; padding: 10px 16px; }
+td { min-height: var(--ff-row); padding: 15px 16px; }
+.table-wrap { max-width: 100%; overflow-x: auto; }
+.pill, .status { padding: 4px 8px; font-size: 11px; }
+
+/* Workspace: top navigation already provides product navigation. */
+.workspace-shell { display: block; width: min(100%, var(--ff-canvas)); padding: 56px 60px 96px; }
+.workspace-sidebar { display: none; }
+.workspace-main { width: 100%; }
+.workspace-hero { margin-bottom: 40px; }
+.workspace-hero h1 { font-size: clamp(34px, 3vw, 44px); }
+.workspace-hero p { max-width: 820px; font-size: 15px; line-height: 1.7; }
+.workspace-hero .button-link { min-height: 42px; padding-inline: 17px; }
+.module-grid { gap: 16px; margin-bottom: 32px; }
+.module-card { min-height: 168px; padding: 24px; }
+.module-card h3 { margin-top: 18px; font-size: 17px; }
+.module-card p { max-width: 320px; font-size: 13px; line-height: 1.6; }
+.projects-panel { border-radius: 10px; }
+.projects-head { padding: 24px; }
+.projects-table th, .projects-table td { padding-inline: 20px; }
+
+/* Project details: content first, management rail second. */
+.project-layout { grid-template-columns: minmax(0, 1fr) 380px; gap: 24px; }
+.project-main > .card { padding: 26px; }
+.collection-item { min-height: 72px; padding: 18px; }
+.label-chip { min-height: 68px; padding: 15px; border-left-color: var(--label-color) !important; }
+.sidebar-form { top: 80px; padding: 24px; }
+
+/* Creation workflows should feel like pages, not tiny dialogs. */
+.task-create { width: min(100%, 960px); max-width: 960px; padding-top: 48px; }
+.task-title { margin-bottom: 32px; }
+.task-title h1 { font-size: 40px; }
+.task-section { padding: 30px 34px; }
+.drop-zone { min-height: 240px; }
+.footer-actions { padding: 18px 34px; }
+.project-create { max-width: 1080px; }
+.create-panel .form-section { padding: 28px 32px; }
+
+/* Annotation is a dense professional tool, but controls must remain usable. */
+.studio { grid-template-columns: 84px minmax(0, 1fr) 380px; }
+.tools { padding: 14px 10px; }
+.tool { height: 60px; font-size: 12px; }
+.stage { padding: 16px; }
+.stage-head { min-height: 44px; margin-bottom: 12px; }
+.side { padding: 18px; }
+.label-item, .object-item { min-height: 54px; padding: 12px; }
+.side-actions button { min-height: 42px; }
+.shortcut-help { font-size: 12px; }
+
+/* Remove the legacy blue annotation-task skin.  Task creation belongs to the
+   same neutral SaaS surface system as the rest of the control plane. */
+.task-panel .project-readonly,
+.task-panel .project-label,
+.task-panel .drop-zone,
+.task-panel .choice-block ul label,
+.task-panel .footer-actions {
+  background: var(--surface);
+  border-color: var(--border);
+}
+.task-panel .project-readonly { background: var(--bg-raised); }
+.task-panel .project-label { background: var(--surface-2); }
+.task-panel .drop-zone { border-color: var(--border-strong); }
+.task-panel .drop-zone.dragging {
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+  border-color: var(--primary);
+}
+.task-panel .upload-icon { color: var(--text-2); }
+.task-panel .file-summary { color: var(--text-2); }
+.task-panel .footer-actions .primary {
+  background: var(--primary);
+  border-color: #f3f4f6;
+}
+
+/* -------------------------------------------------------------------------
+   Monochrome product chrome
+
+   Annotation colours are data, not interface decoration: label, skeleton and
+   shape colours deliberately remain untouched.  Everything that frames that
+   data (navigation, cards, forms, selection, tool states and progress) uses a
+   single neutral scale so a blue page surface can never compete with labels.
+   ------------------------------------------------------------------------- */
+:root {
+  --primary: #e5e7eb;
+  --primary-hover: #ffffff;
+  --accent2: #d1d5db;
+}
+
+a { color: #d1d5db; }
+a:hover { color: #ffffff; }
+::selection { background: #e5e7eb55; color: #ffffff; }
+.eyebrow { color: #aab0b8; }
+.module-icon {
+  color: #d1d5db;
+  background: #ffffff0d;
+  border-color: var(--border-strong);
+}
+.brand-mark {
+  color: #101214;
+  background: #e5e7eb;
+  border-color: #ffffff;
+  box-shadow: none;
+}
+.nav-link.active:after { background: #e5e7eb; }
+button:focus-visible, .button-link:focus-visible, a:focus-visible {
+  outline-color: #e5e7eb;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: #e5e7eb;
+  box-shadow: 0 0 0 3px #ffffff1a;
+}
+input[type=checkbox], input[type=radio], progress { accent-color: #e5e7eb; }
+progress::-webkit-progress-value { background: #e5e7eb; }
+.messages { color: var(--text-2); background: var(--surface-2); border-color: var(--border-strong); }
+code { color: #d1d5db; }
+
+.primary,
+.button-link:not(.secondary):not(.danger),
+.open-project,
+.task-panel .footer-actions .primary {
+  color: #111315;
+  background: #e5e7eb;
+  border-color: #f8fafc;
+  box-shadow: none;
+}
+.primary:hover,
+.button-link:not(.secondary):not(.danger):hover,
+.open-project:hover,
+.task-panel .footer-actions .primary:hover {
+  color: #08090a;
+  background: #ffffff;
+  border-color: #ffffff;
+}
+
+/* Task detail / automatic annotation */
+.auto-form, .run-item, .job-row { background: var(--surface) !important; border-color: var(--border) !important; }
+.mapping-card { background: var(--bg-raised) !important; border-color: var(--border) !important; }
+.mapping-head { background: var(--surface-2) !important; color: var(--muted) !important; }
+.mapping-row { border-color: var(--border) !important; }
+.mapping-arrow, .mapping-count { color: #d1d5db !important; }
+.mapping-points {
+  background: var(--surface-2) !important;
+  border-left-color: #6b7280 !important;
+}
+
+/* Project/schema and task creation surfaces */
+.project-create .schema-pane,
+.project-create .form-section,
+.project-create .label-card,
+.project-create .skeleton-config,
+.create-panel .form-section,
+.task-panel .project-readonly,
+.task-panel .project-label,
+.task-panel .drop-zone,
+.task-panel .choice-block ul label,
+.task-panel .footer-actions {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+}
+.task-panel .project-readonly, .project-create .schema-pane { background: var(--bg-raised) !important; }
+.task-panel .project-label { background: var(--surface-2) !important; }
+.task-panel .drop-zone { border-color: var(--border-strong) !important; }
+.task-panel .drop-zone.dragging {
+  background: var(--surface-2) !important;
+  border-color: #e5e7eb !important;
+}
+
+/* Annotation canvas chrome. Object cards retain their own label-derived colour. */
+.studio { background: #0a0b0d !important; }
+.tools, .side { background: #0c0d0f; border-color: var(--border) !important; }
+.tool.active { color: #101214; background: #e5e7eb !important; border-color: #ffffff !important; }
+.tool.active:hover { color: #08090a; background: #ffffff !important; }
+.viewport { background: #030405 !important; border-color: var(--border) !important; }
+.label-item.active { background: #202328 !important; border-color: #e5e7eb !important; }
+.object-actions select, .object-details input, .object-details select { background: #0b0d0f !important; }
+.icon-button { background: var(--surface-2) !important; border-color: var(--border-strong) !important; }
+.icon-button.danger { background: var(--danger-bg) !important; border-color: #633039 !important; }
+.detail-button { background: var(--surface-2) !important; border-color: var(--border) !important; }
+.object-details { background: var(--bg-raised) !important; border-top-color: var(--border) !important; }
+.object-details label { color: var(--text-2) !important; }
+.point-editor, .context-menu { background: var(--surface-2) !important; border-color: var(--border-strong) !important; }
+.shortcut-help { color: var(--muted) !important; border-top-color: var(--border) !important; }
+.shortcut-help kbd { color: var(--text-2) !important; background: var(--surface-3) !important; border-color: var(--border-strong) !important; }
+
+/* Model Quality viewer/dashboard uses the same neutral shell. */
+.eval-viewer, .eval-side, .eval-toolbar, .viewer-panel,
+.mq-dashboard .metric-card, .mq-dashboard .evaluation-card,
+.mq-dashboard .project-eval-card, .mq-dashboard .run-card {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+}
+.mq-dashboard .project-eval-card:hover, .mq-dashboard .run-card:hover { border-color: var(--border-strong) !important; }
+.mq-dashboard .run-progress, .eval-progress { background: var(--surface-3) !important; }
+.mq-dashboard .run-progress > span, .eval-progress > span { background: #e5e7eb !important; }
+.mq-dashboard .status-running, .status-running { color: #e5e7eb !important; background: #24272b !important; border-color: #4b5158 !important; }
+
+/* Quality workflow: neutral steps, upload areas and mapping UI. */
+.mq-shell .stepper, .mq-shell .step.active, .mq-shell .dropzone,
+.mq-shell .dropzone:hover, .mq-shell .dropzone.dragging,
+.mq-shell .support-item, .mq-shell .summary-card, .mq-shell .pipeline-row,
+.mq-shell .metric-preview div, .mq-shell .model-class-grid tr,
+.mq-shell .live-preview, .mq-shell .live-preview-head {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+}
+.mq-shell .step.active .step-index, .mq-shell .step.done .step-index,
+.mq-shell .source-tab.active {
+  color: #101214 !important;
+  background: #e5e7eb !important;
+  border-color: #ffffff !important;
+}
+.mq-shell .step.done, .mq-shell .drop-icon, .mq-shell .support-icon,
+.mq-shell .mapping-arrow { color: #d1d5db !important; }
+.mq-shell .dropzone:hover, .mq-shell .dropzone.dragging { border-color: #e5e7eb !important; }
+.mq-shell .task-option input:checked + span { color: var(--text) !important; background: var(--surface-3) !important; border-color: #e5e7eb !important; }
+.mq-shell .mapping-note { color: var(--text-2) !important; background: var(--surface-2) !important; border-left-color: #9ca3af !important; }
+.mq-shell .model-class-index { color: var(--text-2) !important; background: var(--surface-3) !important; }
+.mq-dashboard .project-eval-card .arrow { color: #d1d5db !important; }
+.mq-dashboard .run-progress span { background: #e5e7eb !important; }
+.mq-dashboard .task-menu[open] summary { background: var(--surface-3) !important; border-color: #e5e7eb !important; }
+
+.eval-viewer { background: #0a0b0d !important; }
+.eval-canvas-wrap { background: #030405 !important; border-color: var(--border) !important; }
+.eval-side { background: var(--surface) !important; border-color: var(--border) !important; }
+.output-item, .metric { background: var(--surface-2) !important; border-color: var(--border) !important; }
+.output-item b { color: var(--text) !important; }
+.waiting-spinner { border-color: #343a40 !important; border-top-color: #e5e7eb !important; box-shadow: none !important; }
+.waiting-spinner:after { border-bottom-color: #9ca3af !important; }
+
+/* Compact personal shortcut editor in the annotation canvas. */
+.side-utility { display: flex; justify-content: flex-end; margin: 10px 0 18px; }
+.side-utility button { min-height: 30px; padding: 5px 9px; font-size: 11px; }
+.shortcut-dialog {
+  width: min(500px, calc(100vw - 32px));
+  margin: auto;
+  padding: 0;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: 0 24px 80px #000b;
+}
+.shortcut-dialog::backdrop { background: #000a; backdrop-filter: blur(3px); }
+.shortcut-dialog form { padding: 22px; }
+.shortcut-dialog header, .shortcut-dialog footer { display: flex; align-items: center; gap: 10px; }
+.shortcut-dialog header { justify-content: space-between; margin-bottom: 20px; }
+.shortcut-dialog header h2 { margin: 2px 0 6px; }
+.shortcut-dialog header .eyebrow { margin: 0; }
+.shortcut-dialog footer { margin-top: 22px; }
+.shortcut-dialog footer span { flex: 1; }
+.shortcut-fields { display: grid; gap: 9px; }
+.shortcut-fields label { display: grid; grid-template-columns: minmax(0, 1fr) 150px; align-items: center; gap: 14px; color: var(--text-2); }
+.shortcut-fields input { min-height: 36px; text-align: center; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; cursor: pointer; }
+@media (max-width: 560px) { .shortcut-fields label { grid-template-columns: 1fr; gap: 5px; } }
+
+/* Media-player transport: frame controls stay together instead of being split by
+   the slider, so previous/play/next can be read at a glance. */
+.timeline { gap: 12px !important; padding: 12px 2px 0 !important; }
+.transport-controls { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; }
+.transport-controls button {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  font-size: 14px;
+}
+.transport-controls .transport-play {
+  width: 42px;
+  min-width: 42px;
+  color: #111315;
+  background: #e5e7eb;
+  border-color: #ffffff;
+  font-size: 15px;
+}
+.transport-controls .transport-play:hover { color: #08090a; background: #ffffff; }
+.timeline output { min-width: 62px; color: var(--text-2); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; text-align: right; }
+.timeline input[type=range] { min-width: 100px; }
+
+.point-editor-add { display: grid; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.missing-point { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
+.missing-point label { display: grid; gap: 5px; color: var(--text-2); font-size: 12px; }
+.missing-point button { min-height: 38px; white-space: nowrap; }
+
+@media (max-width: 1199.98px) {
+  .container, .workspace-shell { padding-right: 32px; padding-left: 32px; }
+  .project-layout { grid-template-columns: minmax(0, 1fr) 340px; }
+  .studio { grid-template-columns: 76px minmax(0, 1fr) 320px; }
+}
+@media (max-width: 991.98px) {
+  .container, .workspace-shell { padding: 36px 24px 64px; }
+  .project-layout, .grid-two, .admin-shell { grid-template-columns: 1fr; }
+  .sidebar-form { position: static; }
+  .module-grid, .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 767.98px) {
+  .container, .workspace-shell { padding: 28px 16px 56px; }
+  .page-head, .workspace-hero { flex-direction: column; align-items: stretch; }
+  .page-head .button-link, .workspace-hero .button-link { width: 100%; }
+  .module-grid, .feature-grid, .stats-grid { grid-template-columns: 1fr; }
+  .task-section { padding: 24px 18px; }
+  .footer-actions { padding: 16px 18px; }
+}

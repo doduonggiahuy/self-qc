@@ -33,7 +33,7 @@ Registry tại `/system/models/`, chỉ Django Admin truy cập được. Một 
 - default JSON config và enabled state.
 
 Admin có thể upload, sửa hoặc xóa `.pt`, `.pth`, `.onnx`, `.engine` và
-`.torchscript`. File nằm dưới `MODEL_ROOT` (`/var/lib/model-qc/models` trong Docker), tức named
+`.torchscript`. File nằm dưới `MODEL_ROOT` (`/var/lib/freeflow/models` trong Docker), tức named
 volume `qc_storage` (thư mục `models`). Khi thay file hoặc xóa record, registry cũng xóa file cũ mà nó
 quản lý. Vì vậy UI luôn có bước xác nhận khi xóa.
 

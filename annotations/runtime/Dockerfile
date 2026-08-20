@@ -1,4 +1,4 @@
-FROM model-qc/annotation-worker:dev
+FROM freeflow/annotation-worker:dev
 
 RUN python -m pip install --no-cache-dir --upgrade ultralytics==8.4.121
 

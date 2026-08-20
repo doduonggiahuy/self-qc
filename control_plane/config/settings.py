@@ -44,9 +44,9 @@ WSGI_APPLICATION = "control_plane.config.wsgi.application"
 if os.getenv("POSTGRES_HOST"):
     DATABASES = {"default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("POSTGRES_DB", "model_qc"),
-        "USER": os.getenv("POSTGRES_USER", "model_qc"),
-        "PASSWORD": os.getenv("POSTGRES_PASSWORD", "model_qc_local"),
+        "NAME": os.getenv("POSTGRES_DB", "freeflow"),
+        "USER": os.getenv("POSTGRES_USER", "freeflow"),
+        "PASSWORD": os.getenv("POSTGRES_PASSWORD", "freeflow_local"),
         "HOST": os.getenv("POSTGRES_HOST", "db"),
         "PORT": os.getenv("POSTGRES_PORT", "5432"),
         "CONN_MAX_AGE": 60,
@@ -60,6 +60,7 @@ USE_I18N = True
 USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_DIRS = [BASE_DIR / "control_plane" / "static"]
 MEDIA_URL = "/media/"
 MEDIA_ROOT = Path(os.getenv("QC_MEDIA_ROOT", BASE_DIR / "media"))
 MODEL_ROOT = Path(os.getenv("QC_MODEL_ROOT", BASE_DIR / "models"))

@@ -4,16 +4,16 @@ SHELL := /bin/bash
 
 COMPOSE ?= docker compose
 SERVICE ?= platform-web
-PROJECT_NAME ?= model-qc
+PROJECT_NAME ?= freeflow
 APP_SERVICES := platform-web platform-worker annotation-worker quality-worker training-worker ai-rules-worker
 INFERENCE_SERVICES := annotation-yolo26-detection annotation-yolo26-pose
 
 .PHONY: help install install-cpu env check test migrate migrations bootstrap docker-migrate docker-test \
-	dev up local up-local down stop restart apply refresh refresh-all rebuild logs logs-all ps shell admin pack-model clean \
+	dev up local up-local down stop restart apply refresh refresh-all rebuild logs logs-all ps shell admin createsuperuser pack-model clean \
 	data-volumes reset-data reset-all-data sync-auto-annotation
 
 help: ## Hiển thị các command có sẵn
-	@awk 'BEGIN {FS = ":.*## "; printf "Model QC commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*## "; printf "Freeflow commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 install: up ## Build Docker images và bật toàn bộ local stack
 
@@ -62,16 +62,16 @@ up-local: up ## Alias rõ nghĩa cho `make up local`
 down: ## Dừng và remove container/network, giữ nguyên named volumes
 	$(COMPOSE) down
 
-data-volumes: ## Liệt kê named volumes dữ liệu thuộc riêng Model QC
+data-volumes: ## Liệt kê named volumes dữ liệu thuộc riêng Freeflow
 	docker volume ls --filter "label=com.docker.compose.project=$(PROJECT_NAME)" --format "table {{.Name}}\t{{.Labels}}"
 
-reset-data: ## Xóa PostgreSQL và artifact runtime Model QC (CONFIRM=RESET)
+reset-data: ## Xóa PostgreSQL và artifact runtime Freeflow (CONFIRM=RESET)
 	@if [ "$(CONFIRM)" != "RESET" ]; then \
 		echo "Từ chối xóa: dùng 'make reset-data CONFIRM=RESET'. Lệnh xóa database, media, models và datasets."; \
 		exit 2; \
 	fi
 	$(COMPOSE) down --remove-orphans
-	@docker volume ls -q --filter "label=com.docker.compose.project=$(PROJECT_NAME)" --filter "label=com.model-qc.reset-group=all-data" | xargs -r docker volume rm
+	@docker volume ls -q --filter "label=com.docker.compose.project=$(PROJECT_NAME)" --filter "label=com.freeflow.reset-group=all-data" | xargs -r docker volume rm
 	@echo "Đã xóa PostgreSQL và artifact runtime. Chạy 'make up local' để tạo stack mới."
 
 reset-all-data: ## Alias reset toàn bộ runtime data (CONFIRM=RESET_ALL)
@@ -80,7 +80,7 @@ reset-all-data: ## Alias reset toàn bộ runtime data (CONFIRM=RESET_ALL)
 		exit 2; \
 	fi
 	$(COMPOSE) down --remove-orphans
-	@docker volume ls -q --filter "label=com.docker.compose.project=$(PROJECT_NAME)" --filter "label=com.model-qc.reset-group=all-data" | xargs -r docker volume rm
+	@docker volume ls -q --filter "label=com.docker.compose.project=$(PROJECT_NAME)" --filter "label=com.freeflow.reset-group=all-data" | xargs -r docker volume rm
 	@echo "Đã xóa PostgreSQL và artifact runtime."
 
 stop: ## Dừng service nhưng giữ container và volumes
@@ -89,8 +89,8 @@ stop: ## Dừng service nhưng giữ container và volumes
 restart: ## Restart service đã chọn (mặc định platform-web)
 	$(COMPOSE) restart $(SERVICE)
 
-apply: ## Apply code mới: recreate Platform và toàn bộ worker, không rebuild image
-	$(COMPOSE) up -d --no-build --force-recreate $(APP_SERVICES)
+apply: ## Apply code web/annotation mới: recreate platform-web và annotation-worker, không rebuild image
+	$(COMPOSE) up -d --no-build --force-recreate platform-web annotation-worker
 
 refresh: env ## Recreate Platform web và toàn bộ domain workers, không rebuild image
 	$(COMPOSE) up -d --no-build --force-recreate $(APP_SERVICES)
@@ -119,6 +119,8 @@ shell: ## Mở Django shell trong Platform web container
 
 admin: ## Tạo Django superuser tương tác trong Platform web container
 	$(COMPOSE) exec $(SERVICE) python manage.py createsuperuser
+
+createsuperuser: admin ## Alias rõ nghĩa cho make admin
 
 pack-model: ## Đóng gói model đã nằm trong workspace: make pack-model SRC=/app/... OUT=/app/...
 	@test -n "$(SRC)" || (echo "Thiếu SRC=/app/model-directory" && exit 2)

@@ -2,7 +2,7 @@
 
 **Status:** Implemented foundation, production execution plane planned.
 
-Model QC là control plane để tạo Ground Truth và quản lý các bài kiểm thử cho
+Freeflow là control plane để tạo Ground Truth và quản lý các bài kiểm thử cho
 video AI. Repo hiện là Django modular monolith gồm hai bounded module:
 
 ```text

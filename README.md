@@ -1,4 +1,4 @@
-# Model QC Studio
+# Freeflow Studio
 
 Tài liệu hệ thống được duy trì tại [`control_plane/docs/`](control_plane/docs/README.md).
 

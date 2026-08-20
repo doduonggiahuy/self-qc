@@ -37,7 +37,7 @@ make pack-model SRC=/path/to/model OUT=/path/to/model.zip
 ```
 
 Local Compose bind-mount source repo vào `/app` **chỉ cho code**. Dữ liệu runtime
-được mount ở `/var/lib/model-qc`, hoàn toàn tách khỏi source tree. `make refresh` recreate riêng web container bằng
+được mount ở `/var/lib/freeflow`, hoàn toàn tách khỏi source tree. `make refresh` recreate riêng web container bằng
 image hiện có để nhận code, thay đổi Compose và chạy migration qua entrypoint,
 nhưng không build image. Dùng `make rebuild` nếu thay `requirements.txt`,
 `Dockerfile`, system package hoặc CUDA/PyTorch stack.
@@ -99,8 +99,8 @@ Entrypoint tự migrate và bootstrap hai Django group.
 ## Dữ liệu Docker và reset có kiểm soát
 
 Không dùng bind mount cho dữ liệu upload hoặc model. Toàn bộ state bền vững của
-Model QC dùng **một named volume duy nhất** là `qc_storage`, do Docker Compose quản
-lý theo project `model-qc`. Bên trong volume này các service dùng thư mục con riêng:
+Freeflow dùng **một named volume duy nhất** là `qc_storage`, do Docker Compose quản
+lý theo project `freeflow`. Bên trong volume này các service dùng thư mục con riêng:
 
 | Thư mục trong `qc_storage` | Nội dung |
 | --- | --- |
@@ -133,4 +133,4 @@ make reset-all-data CONFIRM=RESET_ALL
 ```
 
 Hai lệnh reset đều yêu cầu chuỗi xác nhận rõ ràng và chỉ chọn volume `qc_storage`
-của project Model QC; không đụng tới volume của project Docker khác.
+của project Freeflow; không đụng tới volume của project Docker khác.

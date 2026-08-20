@@ -5,9 +5,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
-COPY entrypoint.sh /usr/local/bin/model-qc-entrypoint
-RUN chmod +x /usr/local/bin/model-qc-entrypoint
-ENTRYPOINT ["/usr/local/bin/model-qc-entrypoint"]
+COPY entrypoint.sh /usr/local/bin/freeflow-entrypoint
+RUN chmod +x /usr/local/bin/freeflow-entrypoint
+ENTRYPOINT ["/usr/local/bin/freeflow-entrypoint"]
 
 FROM base AS web-deps
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -175,6 +175,31 @@ def read_project_frame(project, frame_index):
     return read_frame(project.video.path, frame_index)
 
 
+def read_project_frame_bytes(project, frame_index):
+    """Return the stored frame bytes without a lossy decode/encode round trip.
+
+    Image sequences are the canonical media representation for new Annotation
+    Jobs (including frames materialized from uploaded video).  Automatic
+    annotation must send those bytes directly to the model function: tiny
+    objects such as phones are disproportionately harmed by re-encoding JPEG
+    before every inference request.  The legacy VIDEO branch is retained only
+    for old projects without a frame manifest.
+    """
+    if project.media_kind == "IMAGE_SEQUENCE":
+        try:
+            storage_name = project.frame_manifest[int(frame_index)]
+        except (IndexError, TypeError, ValueError):
+            raise ValueError(f"Không đọc được frame {frame_index}")
+        with default_storage.open(storage_name, "rb") as source:
+            return source.read()
+
+    frame = read_frame(project.video.path, frame_index)
+    encoded, payload = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    if not encoded:
+        raise ValueError(f"Không encode được frame {frame_index}")
+    return payload.tobytes()
+
+
 def delete_project_media(project):
     if project.video:
         project.video.delete(save=False)

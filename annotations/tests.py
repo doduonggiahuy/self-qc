@@ -1,3 +1,4 @@
+import base64
 import json
 import io
 import tempfile
@@ -10,11 +11,11 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from .models import AnnotationJob, AnnotationShape, AnnotationTask, AutoAnnotationFunction, AutoAnnotationRun, BoxAnnotation, ClientProject, LabelClass, Project, Rule
+from .models import AnnotationJob, AnnotationShape, AnnotationShortcutPreference, AnnotationTask, AutoAnnotationFunction, AutoAnnotationRun, BoxAnnotation, ClientProject, LabelAttribute, LabelClass, Project, Rule, SkeletonEdge, SkeletonPoint
 from control_plane.projects.roles import ensure_platform_roles
 
 
-@override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix="model-qc-test-"))
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix="freeflow-test-"))
 class AnnotationApiTests(TestCase):
     def setUp(self):
         users = get_user_model()
@@ -78,6 +79,108 @@ class AnnotationApiTests(TestCase):
         self.assertEqual(list(pose.skeleton_points.values_list("name", flat=True)), ["nose", "neck"])
         self.assertEqual(list(pose.skeleton_points.values_list("color", flat=True)), ["#4dc8fc", "#17b183"])
         self.assertEqual(pose.skeleton_edges.count(), 1)
+
+    def test_root_can_edit_project_label_without_losing_project_color_contract(self):
+        project = ClientProject.objects.create(name="Editable", owner=self.owner)
+        label = LabelClass.objects.create(client_project=project, name="person", color="#00c900")
+        self.client.force_login(self.owner)
+        detail = self.client.get(reverse("client-project-detail", args=[project.pk]))
+        self.assertContains(detail, "#00c900")
+        self.assertContains(detail, f'--label-color:{label.color}')
+        response = self.client.post(reverse("project-label-edit", args=[project.pk, label.pk]), {
+            "name": "guest", "label_type": "rectangle", "color": "#ff3366",
+        })
+        self.assertRedirects(response, reverse("client-project-detail", args=[project.pk]))
+        label.refresh_from_db()
+        self.assertEqual((label.name, label.color), ("guest", "#ff3366"))
+
+    def test_root_label_editor_loads_and_updates_attributes(self):
+        project = ClientProject.objects.create(name="Attribute editor", owner=self.owner)
+        label = LabelClass.objects.create(client_project=project, name="person")
+        LabelAttribute.objects.create(label=label, name="behavior", values=["idle"], default_value="idle")
+        self.client.force_login(self.owner)
+        page = self.client.get(reverse("project-label-edit", args=[project.pk, label.pk]))
+        self.assertContains(page, "Attributes")
+        self.assertContains(page, "behavior")
+        response = self.client.post(reverse("project-label-edit", args=[project.pk, label.pk]), {
+            "name": "person", "label_type": "rectangle", "color": "#00c900",
+            "attributes_schema": json.dumps([{"name": "behavior", "input_type": "select", "values": ["idle", "walking"], "default_value": "walking", "mutable": True}]),
+        })
+        self.assertRedirects(response, reverse("client-project-detail", args=[project.pk]))
+        attribute = label.attributes.get()
+        self.assertEqual((attribute.values, attribute.default_value, attribute.mutable), (["idle", "walking"], "walking", True))
+
+    def test_root_skeleton_label_editor_updates_points_and_edges(self):
+        project = ClientProject.objects.create(name="Pose editor", owner=self.owner)
+        label = LabelClass.objects.create(client_project=project, name="pose", label_type="skeleton")
+        nose = SkeletonPoint.objects.create(label=label, name="nose", color="#ff0000")
+        neck = SkeletonPoint.objects.create(label=label, name="neck", color="#00ff00")
+        SkeletonEdge.objects.create(label=label, from_point=nose, to_point=neck)
+        self.client.force_login(self.owner)
+        response = self.client.post(reverse("project-label-edit", args=[project.pk, label.pk]), {
+            "name": "pose", "label_type": "skeleton", "color": "#3d3df5", "attributes_schema": "[]",
+            "skeleton_schema": json.dumps([
+                {"name": "nose", "color": "#ff0000", "x": 40, "y": 20, "connects_to": ["neck"]},
+                {"name": "neck", "color": "#00ff00", "x": 50, "y": 40, "connects_to": []},
+                {"name": "shoulder", "color": "#0000ff", "x": 60, "y": 55, "connects_to": ["neck"]},
+            ]),
+        })
+        self.assertRedirects(response, reverse("client-project-detail", args=[project.pk]))
+        self.assertEqual(list(label.skeleton_points.values_list("name", flat=True)), ["nose", "neck", "shoulder"])
+        self.assertEqual(label.skeleton_edges.count(), 2)
+
+    def test_root_can_open_cvat_style_project_schema_editor_with_existing_raw_schema(self):
+        project = ClientProject.objects.create(name="Editable schema", owner=self.owner, description="Initial")
+        label = LabelClass.objects.create(client_project=project, name="person", color="#00c900")
+        self.client.force_login(self.owner)
+        page = self.client.get(reverse("client-project-edit", args=[project.pk]))
+        self.assertContains(page, "Chỉnh sửa project")
+        self.assertContains(page, "Raw")
+        self.assertContains(page, "&quot;name&quot;: &quot;person&quot;")
+        response = self.client.post(reverse("client-project-edit", args=[project.pk]), {
+            "name": "Editable schema", "description": "Updated",
+            "labels_schema": json.dumps([{
+                "name": "person", "color": "#ff3366", "type": "rectangle",
+                "attributes": [{"name": "state", "input_type": "select", "values": ["idle", "active"], "default_value": "idle"}],
+                "points": [], "edges": [],
+            }]),
+            "rules_schema": json.dumps([{"name": "use_phone", "description": "Phone", "enabled": True}]),
+        })
+        self.assertRedirects(response, reverse("client-project-detail", args=[project.pk]))
+        project.refresh_from_db()
+        label.refresh_from_db()
+        self.assertEqual((project.description, label.color), ("Updated", "#ff3366"))
+        self.assertEqual(list(label.attributes.values_list("name", flat=True)), ["state"])
+        self.assertTrue(project.rules.filter(name="use_phone").exists())
+
+    def test_root_delete_project_label_also_deletes_its_annotations(self):
+        project = ClientProject.objects.create(name="Delete label", owner=self.owner)
+        label = LabelClass.objects.create(client_project=project, name="person", color="#00c900")
+        task = AnnotationTask.objects.create(name="Task", client_project=project, created_by=self.owner)
+        self.project.client_project = project
+        self.project.annotation_task = task
+        self.project.save(update_fields=["client_project", "annotation_task"])
+        job = AnnotationJob.objects.create(task=task, video=self.project, stop_frame=0)
+        AnnotationShape.objects.create(job=job, label=label, frame_index=0, shape_type="rectangle", points=[1, 2, 3, 4])
+        self.client.force_login(self.owner)
+        response = self.client.post(reverse("project-label-delete", args=[project.pk, label.pk]))
+        self.assertRedirects(response, reverse("client-project-detail", args=[project.pk]))
+        self.assertFalse(LabelClass.objects.filter(pk=label.pk).exists())
+        self.assertFalse(AnnotationShape.objects.filter(job=job).exists())
+
+    def test_annotator_cannot_edit_or_delete_project_label(self):
+        project = ClientProject.objects.create(name="Protected schema", owner=self.owner)
+        label = LabelClass.objects.create(client_project=project, name="person")
+        roles = ensure_platform_roles()
+        self.other.groups.add(roles["DATA_ANNOTATOR"])
+        self.client.force_login(self.other)
+        edit = self.client.post(reverse("project-label-edit", args=[project.pk, label.pk]), {
+            "name": "changed", "label_type": "rectangle", "color": "#ffffff",
+        })
+        delete = self.client.post(reverse("project-label-delete", args=[project.pk, label.pk]))
+        self.assertEqual((edit.status_code, delete.status_code), (403, 403))
+        label.refresh_from_db()
+        self.assertEqual(label.name, "person")
 
     def test_data_annotator_cannot_create_project_schema(self):
         roles = ensure_platform_roles()
@@ -306,6 +409,18 @@ class AnnotationApiTests(TestCase):
         self.assertContains(page, "function rectHandles(s)")
         self.assertContains(page, "function drawTag(")
         self.assertContains(page, "function undo()")
+        self.assertContains(page, 'data-tool="pan"')
+        self.assertContains(page, "function focusShape(shape)")
+        self.assertContains(page, "data-lock")
+        self.assertContains(page, "data-hide")
+        self.assertContains(page, "data-remove")
+        self.assertContains(page, "Space + drag")
+        self.assertContains(page, "function stageCurrentFrame()")
+        self.assertContains(page, "function showContextMenu(index,event)")
+        self.assertContains(page, "event.key.toLowerCase()==='n'")
+        self.assertContains(page, 'id="shortcutSettings"')
+        self.assertNotContains(page, '<h3>Project labels</h3>')
+        self.assertNotContains(page, "Bỏ thay đổi và chuyển frame?")
         response = self.client.post(
             reverse("save-job-frame", args=[job.pk, 3]),
             data=json.dumps({"shapes": [{"label_id": label.pk, "type": "rectangle", "points": [1, 2, 30, 40], "attributes": {}}]}),
@@ -313,6 +428,19 @@ class AnnotationApiTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertTrue(AnnotationShape.objects.filter(job=job, frame_index=3, label=label).exists())
+
+    def test_canvas_shortcuts_are_saved_per_user_and_reject_duplicates(self):
+        self.client.force_login(self.other)
+        payload = {"shortcuts": {
+            "select": "q", "pan": "h", "rectangle": "n", "skeleton": "s",
+            "save": "ctrl+s", "undo": "ctrl+z", "redo": "ctrl+y", "delete": "delete",
+        }}
+        response = self.client.post(reverse("save-annotation-shortcuts"), data=json.dumps(payload), content_type="application/json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(AnnotationShortcutPreference.objects.get(user=self.other).shortcuts["select"], "q")
+        payload["shortcuts"]["pan"] = "q"
+        response = self.client.post(reverse("save-annotation-shortcuts"), data=json.dumps(payload), content_type="application/json")
+        self.assertEqual(response.status_code, 400)
 
     def test_owner_can_save_manual_bbox(self):
         self.client.force_login(self.owner)
@@ -397,6 +525,20 @@ class AnnotationApiTests(TestCase):
         self.assertEqual(len(created), 1)
         shape = AnnotationShape.objects.get()
         self.assertEqual((shape.label, shape.source, shape.points), (label, "auto", [1.0, 2.0, 30.0, 40.0]))
+
+    def test_auto_annotation_forwards_canonical_frame_bytes(self):
+        from unittest.mock import patch
+        from .auto_annotation import invoke
+        function = AutoAnnotationFunction.objects.create(
+            name="Bytes function", key="bytes-function", endpoint_url="http://model:8080",
+            kind="detector", spec=[{"name": "person", "type": "rectangle"}],
+        )
+        payload = b"original-image-content"
+        with patch("annotations.auto_annotation.urlopen") as request:
+            request.return_value.__enter__.return_value.read.return_value = b"[]"
+            invoke(function, payload, 0.25)
+        body = json.loads(request.call_args.args[0].data.decode())
+        self.assertEqual(base64.b64decode(body["image"]), payload)
 
     def test_auto_annotation_page_exposes_visual_model_to_project_mapping(self):
         client_project = ClientProject.objects.create(name="Visual mapping", owner=self.owner)

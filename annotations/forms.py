@@ -49,6 +49,16 @@ class ProjectLabelForm(forms.ModelForm):
         model = LabelClass
         fields = ["name", "label_type", "color"]
         labels = {"name": "Label class", "label_type": "Loại label", "color": "Màu"}
+        widgets = {"color": forms.TextInput(attrs={"type": "color"})}
+
+    def clean_label_type(self):
+        label_type = self.cleaned_data["label_type"]
+        if not self.instance.pk:
+            return label_type
+        has_annotations = self.instance.shapes.exists() or self.instance.boxes.exists()
+        if label_type != self.instance.label_type and (has_annotations or self.instance.label_type == "skeleton" or label_type == "skeleton"):
+            raise forms.ValidationError("Không thể đổi loại của skeleton hoặc label đã có annotation.")
+        return label_type
 
 
 class AutoAnnotationFunctionForm(forms.ModelForm):

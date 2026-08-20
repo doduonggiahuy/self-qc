@@ -13,11 +13,50 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from .forms import AnnotationTaskForm, AutoAnnotationFunctionForm, ClientProjectForm, ProjectForm, ProjectLabelForm, RuleForm
-from .application.project_schema import create_project_schema
-from .models import AnnotationJob, AnnotationShape, AnnotationTask, AutoAnnotationFunction, AutoAnnotationRun, BoxAnnotation, ClientProject, LabelClass, Project, Rule
+from .application.project_schema import create_project_schema, update_project_schema
+from .models import AnnotationJob, AnnotationShape, AnnotationShortcutPreference, AnnotationTask, AutoAnnotationFunction, AutoAnnotationRun, BoxAnnotation, ClientProject, LabelAttribute, LabelClass, Project, Rule, SkeletonEdge, SkeletonPoint
 from .media import delete_project_media, ingest_task_uploads, read_project_frame
 
 logger = logging.getLogger(__name__)
+
+
+CANVAS_SHORTCUT_DEFAULTS = {
+    "select": "v",
+    "pan": "h",
+    "rectangle": "n",
+    "skeleton": "s",
+    "save": "ctrl+s",
+    "undo": "ctrl+z",
+    "redo": "ctrl+y",
+    "zoom_out": "-",
+    "zoom_in": "=",
+    "fit": "f",
+    "previous_frame": "arrowleft",
+    "next_frame": "arrowright",
+    "play_pause": "space",
+    "delete": "delete",
+}
+CANVAS_SHORTCUT_ACTIONS = set(CANVAS_SHORTCUT_DEFAULTS)
+
+
+def _canvas_shortcuts(user):
+    preference, _ = AnnotationShortcutPreference.objects.get_or_create(user=user)
+    return {**CANVAS_SHORTCUT_DEFAULTS, **{
+        action: value for action, value in preference.shortcuts.items()
+        if action in CANVAS_SHORTCUT_ACTIONS and isinstance(value, str)
+    }}
+
+
+def _normalize_shortcut(value):
+    value = str(value or "").strip().lower().replace("cmd+", "ctrl+")
+    if value in {"delete", "backspace", "space", "arrowleft", "arrowright", "-", "="}:
+        return value
+    parts = value.split("+")
+    if len(parts) == 1 and len(parts[0]) == 1 and parts[0].isalpha():
+        return parts[0]
+    if len(parts) == 2 and parts[0] == "ctrl" and len(parts[1]) == 1 and parts[1].isalpha():
+        return value
+    raise ValidationError("Shortcut chỉ hỗ trợ một chữ cái, Ctrl + chữ cái, Delete hoặc Backspace.")
 
 
 def _can_edit(user, project):
@@ -106,6 +145,44 @@ def client_project_create(request):
             create_project_schema(item, form.cleaned_data["labels_schema"], form.cleaned_data["rules_schema"])
         return redirect("client-project-detail", pk=item.pk)
     return render(request, "annotations/client_project_form.html", {"form": form})
+
+
+def _project_schema_payload(item):
+    labels = []
+    for label in item.labels.prefetch_related("attributes", "skeleton_points", "skeleton_edges__from_point", "skeleton_edges__to_point"):
+        labels.append({
+            "name": label.name,
+            "color": label.color,
+            "type": label.label_type,
+            "cvat_type": "any" if label.label_type == "rectangle" else label.label_type,
+            "attributes": [{
+                "name": attribute.name, "input_type": attribute.input_type,
+                "mutable": attribute.mutable, "values": attribute.values,
+                "default_value": attribute.default_value,
+            } for attribute in label.attributes.all()],
+            "points": [{"name": point.name, "color": point.color, "x": point.x, "y": point.y} for point in label.skeleton_points.all()],
+            "edges": [{"from": edge.from_point.name, "to": edge.to_point.name} for edge in label.skeleton_edges.all()],
+        })
+    rules = [{"name": rule.name, "description": rule.description, "enabled": rule.enabled} for rule in item.rules.all()]
+    return labels, rules
+
+
+@login_required
+def client_project_edit(request, pk):
+    _require_root(request.user)
+    item = _client_project(request.user, pk)
+    labels, rules = _project_schema_payload(item)
+    form = ClientProjectForm(
+        request.POST or None,
+        instance=item,
+        initial={"labels_schema": json.dumps(labels), "rules_schema": json.dumps(rules)},
+    )
+    if request.method == "POST" and form.is_valid():
+        with transaction.atomic():
+            item = form.save()
+            update_project_schema(item, form.cleaned_data["labels_schema"], form.cleaned_data["rules_schema"])
+        return redirect("client-project-detail", pk=item.pk)
+    return render(request, "annotations/client_project_form.html", {"form": form, "client_project": item, "editing": True})
 
 
 @login_required
@@ -324,6 +401,87 @@ def client_project_delete(request, pk):
 
 
 @login_required
+def project_label_edit(request, pk, label_pk):
+    _require_root(request.user)
+    item = _client_project(request.user, pk)
+    label = get_object_or_404(item.labels.prefetch_related("skeleton_points", "attributes"), pk=label_pk)
+    form = ProjectLabelForm(request.POST or None, instance=label)
+    if request.method == "POST" and form.is_valid():
+        try:
+            attributes = json.loads(request.POST.get("attributes_schema", "[]"))
+            if not isinstance(attributes, list):
+                raise ValueError("Attributes phải là JSON array.")
+            names = [str(attribute.get("name", "")).strip() for attribute in attributes]
+            if any(not name for name in names) or len(names) != len(set(names)):
+                raise ValueError("Mỗi attribute phải có tên riêng.")
+            skeleton = json.loads(request.POST.get("skeleton_schema", "[]"))
+            if not isinstance(skeleton, list):
+                raise ValueError("Skeleton phải là JSON array.")
+            point_names = [str(point.get("name", "")).strip() for point in skeleton]
+            if form.cleaned_data["label_type"] == "skeleton" and (any(not name for name in point_names) or len(point_names) != len(set(point_names))):
+                raise ValueError("Mỗi skeleton point phải có tên riêng.")
+            with transaction.atomic():
+                label = form.save()
+                label.attributes.all().delete()
+                for order, attribute in enumerate(attributes):
+                    values = attribute.get("values", [])
+                    if isinstance(values, str):
+                        values = [value.strip() for value in values.split(",") if value.strip()]
+                    LabelAttribute.objects.create(
+                        label=label, name=str(attribute["name"]).strip(),
+                        input_type=attribute.get("input_type", "select"), values=values,
+                        default_value=str(attribute.get("default_value", "")),
+                        mutable=bool(attribute.get("mutable", False)), order=order,
+                    )
+                if label.label_type == "skeleton":
+                    label.skeleton_points.all().delete()
+                    points = {}
+                    for order, point in enumerate(skeleton):
+                        points[str(point["name"]).strip()] = SkeletonPoint.objects.create(
+                            label=label, name=str(point["name"]).strip(), color=point.get("color") or "#40c4ff",
+                            x=float(point.get("x", 50)), y=float(point.get("y", 50)), order=order,
+                        )
+                    for order, point in enumerate(skeleton):
+                        for target in point.get("connects_to", []):
+                            if point_names[order] in points and target in points:
+                                SkeletonEdge.objects.get_or_create(
+                                    label=label, from_point=points[point_names[order]], to_point=points[target],
+                                    defaults={"order": order},
+                                )
+        except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            form.add_error(None, f"Không thể lưu attributes: {exc}")
+        else:
+            return redirect("client-project-detail", pk=item.pk)
+    return render(request, "annotations/project_label_form.html", {
+        "client_project": item, "label": label, "form": form,
+        "attributes_payload": [{
+            "name": attribute.name, "input_type": attribute.input_type,
+            "values": attribute.values, "default_value": attribute.default_value,
+            "mutable": attribute.mutable,
+        } for attribute in label.attributes.all()],
+        "skeleton_payload": [{
+            "name": point.name, "color": point.color, "x": round(point.x, 2), "y": round(point.y, 2),
+            "connects_to": list(point.outgoing_edges.values_list("to_point__name", flat=True)),
+        } for point in label.skeleton_points.all()],
+    })
+
+
+@login_required
+@require_POST
+@transaction.atomic
+def project_label_delete(request, pk, label_pk):
+    _require_root(request.user)
+    item = _client_project(request.user, pk)
+    label = get_object_or_404(item.labels, pk=label_pk)
+    # Match CVAT's explicit delete contract: removing a saved label also removes
+    # annotations that reference it, after a destructive confirmation in the UI.
+    label.shapes.all().delete()
+    label.boxes.all().delete()
+    label.delete()
+    return redirect("client-project-detail", pk=item.pk)
+
+
+@login_required
 @require_POST
 def rule_delete(request, pk, rule_pk):
     _require_root(request.user)
@@ -400,7 +558,34 @@ def annotation_job(request, pk):
     if job.state == "new":
         job.state = "in_progress"
         job.save(update_fields=["state", "updated_at"])
-    return render(request, "annotations/job_annotate.html", {"job": job, "project": job.video, "label_schema": schema})
+    return render(request, "annotations/job_annotate.html", {
+        "job": job,
+        "project": job.video,
+        "label_schema": schema,
+        "shortcut_config": _canvas_shortcuts(request.user),
+    })
+
+
+@login_required
+@require_POST
+def save_annotation_shortcuts(request):
+    try:
+        payload = json.loads(request.body)
+        submitted = payload.get("shortcuts", {})
+        if not isinstance(submitted, dict):
+            raise ValidationError("Shortcut payload không hợp lệ.")
+        shortcuts = {
+            action: _normalize_shortcut(submitted.get(action, default))
+            for action, default in CANVAS_SHORTCUT_DEFAULTS.items()
+        }
+        if len(set(shortcuts.values())) != len(shortcuts):
+            raise ValidationError("Mỗi action phải dùng một shortcut khác nhau.")
+    except (json.JSONDecodeError, ValidationError) as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+    preference, _ = AnnotationShortcutPreference.objects.get_or_create(user=request.user)
+    preference.shortcuts = shortcuts
+    preference.save(update_fields=["shortcuts", "updated_at"])
+    return JsonResponse({"ok": True, "shortcuts": shortcuts})
 
 
 @login_required

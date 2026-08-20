@@ -9,11 +9,10 @@ import json
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-import cv2
 from django.core.exceptions import ValidationError
 
 from .models import AnnotationShape
-from .media import read_project_frame
+from .media import read_project_frame_bytes
 
 
 def labels_compatible(model_label, project_label):
@@ -73,12 +72,15 @@ def validate_mapping(function, project, mapping):
     return normalized
 
 
-def invoke(function, frame, threshold):
-    ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
-    if not ok:
-        raise RuntimeError("Cannot encode frame for auto annotation")
+def invoke(function, image_bytes, threshold):
+    """Call a CVAT-style function with canonical source bytes.
+
+    Do not turn a stored JPEG/PNG into OpenCV pixels and back into JPEG here.
+    The model service already owns image decoding, and forwarding the original
+    bytes preserves details needed for small-object detection.
+    """
     payload = json.dumps({
-        "image": base64.b64encode(encoded.tobytes()).decode("ascii"),
+        "image": base64.b64encode(image_bytes).decode("ascii"),
         "threshold": threshold,
     }).encode("utf-8")
     request = Request(function.endpoint_url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
@@ -145,7 +147,7 @@ def annotate_run(run):
             run.refresh_from_db(fields=["status"])
             if run.status == "CANCELLED":
                 return count
-            annotations = invoke(run.function, read_project_frame(job.video, frame_index), run.threshold)
+            annotations = invoke(run.function, read_project_frame_bytes(job.video, frame_index), run.threshold)
             count += len(convert_and_create(run, job, frame_index, annotations))
             run.progress_current += 1
             run.shapes_created = count

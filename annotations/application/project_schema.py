@@ -92,3 +92,74 @@ def create_project_schema(project, labels, rules):
         name = str(spec.get("name", "")).strip()
         if name:
             Rule.objects.create(client_project=project, name=name, description=str(spec.get("description", "")), enabled=bool(spec.get("enabled", True)))
+
+
+@transaction.atomic
+def update_project_schema(project, labels, rules):
+    """Synchronize a Project schema edited through the CVAT-style editor.
+
+    Labels that retain their name stay attached to existing annotation shapes.
+    Removing a label, or changing its shape type, deliberately removes shapes
+    using that label; the UI requires an explicit destructive confirmation.
+    """
+    labels = normalize_cvat_labels(labels)
+    existing = {label.name: label for label in project.labels.all()}
+    incoming_names = {spec["name"].strip() for spec in labels}
+
+    for name, label in existing.items():
+        if name not in incoming_names:
+            label.shapes.all().delete()
+            label.boxes.all().delete()
+            label.delete()
+
+    for order, spec in enumerate(labels):
+        name = spec["name"].strip()
+        label = existing.get(name)
+        target_type = {"any": "rectangle"}.get(spec.get("type", "rectangle"), spec.get("type", "rectangle"))
+        if label is None:
+            label = LabelClass.objects.create(client_project=project, name=name)
+        elif label.label_type != target_type:
+            label.shapes.all().delete()
+            label.boxes.all().delete()
+
+        label.label_type = target_type
+        label.color = spec.get("color") or "#38bdf8"
+        label.confidence = float(spec.get("confidence", 0.25))
+        label.order = order
+        label.save(update_fields=["label_type", "color", "confidence", "order"])
+
+        label.attributes.all().delete()
+        label.skeleton_points.all().delete()
+        for attr_order, attr in enumerate(spec.get("attributes", [])):
+            values = attr.get("values", [])
+            if isinstance(values, str):
+                values = [value.strip() for value in values.split(",") if value.strip()]
+            LabelAttribute.objects.create(
+                label=label, name=attr["name"].strip(), input_type=attr.get("input_type", "select"),
+                values=values, default_value=str(attr.get("default_value", "")),
+                mutable=bool(attr.get("mutable", False)), order=attr_order,
+            )
+        points = {}
+        for point_order, point in enumerate(spec.get("points", [])):
+            points[point["name"]] = SkeletonPoint.objects.create(
+                label=label, name=point["name"].strip(),
+                color=point.get("color") or SKELETON_POINT_COLORS[point_order % len(SKELETON_POINT_COLORS)],
+                x=float(point.get("x", 50)), y=float(point.get("y", 50)), order=point_order,
+            )
+        for edge_order, edge in enumerate(spec.get("edges", [])):
+            if edge.get("from") in points and edge.get("to") in points:
+                SkeletonEdge.objects.create(label=label, from_point=points[edge["from"]], to_point=points[edge["to"]], order=edge_order)
+
+    current_rules = {rule.name: rule for rule in project.rules.all()}
+    incoming_rules = {str(spec.get("name", "")).strip() for spec in rules if str(spec.get("name", "")).strip()}
+    for name, rule in current_rules.items():
+        if name not in incoming_rules:
+            rule.delete()
+    for spec in rules:
+        name = str(spec.get("name", "")).strip()
+        if not name:
+            continue
+        rule, _ = Rule.objects.get_or_create(client_project=project, name=name)
+        rule.description = str(spec.get("description", ""))
+        rule.enabled = bool(spec.get("enabled", True))
+        rule.save(update_fields=["description", "enabled"])

@@ -194,6 +194,14 @@ class AnnotationShape(models.Model):
         indexes = [models.Index(fields=["job", "frame_index"], name="shape_job_frame_idx")]
 
 
+class AnnotationShortcutPreference(models.Model):
+    """Personal canvas key bindings; deliberately independent of a Project."""
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="annotation_shortcut_preference")
+    shortcuts = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
 class AutoAnnotationFunction(models.Model):
     """Remote inference function exposed to the Annotation execution plane."""
     KIND_CHOICES = [("detector", "Detection"), ("pose", "Pose / Skeleton")]

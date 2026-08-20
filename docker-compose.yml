@@ -1,21 +1,21 @@
-name: model-qc
+name: freeflow
 
 x-django-env: &django-env
   DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-only-change-me}
   DJANGO_DEBUG: ${DJANGO_DEBUG:-true}
   POSTGRES_HOST: db
   POSTGRES_PORT: 5432
-  POSTGRES_DB: ${POSTGRES_DB:-model_qc}
-  POSTGRES_USER: ${POSTGRES_USER:-model_qc}
-  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-model_qc_local}
+  POSTGRES_DB: ${POSTGRES_DB:-freeflow}
+  POSTGRES_USER: ${POSTGRES_USER:-freeflow}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-freeflow_local}
   CELERY_BROKER_URL: redis://redis:6379/0
   CELERY_RESULT_BACKEND: redis://redis:6379/1
   INFERENCE_EXECUTION: worker
   # Runtime data is deliberately outside the bind-mounted source tree. This
   # prevents container data from being mixed with or shadowing repository files.
-  QC_MEDIA_ROOT: /var/lib/model-qc/media
-  QC_MODEL_ROOT: /var/lib/model-qc/models
-  QC_DATASET_ROOT: /var/lib/model-qc/datasets
+  QC_MEDIA_ROOT: /var/lib/freeflow/media
+  QC_MODEL_ROOT: /var/lib/freeflow/models
+  QC_DATASET_ROOT: /var/lib/freeflow/datasets
   DATA_UPLOAD_MAX_NUMBER_FILES: ${DATA_UPLOAD_MAX_NUMBER_FILES:-50000}
   DATA_UPLOAD_MAX_NUMBER_FIELDS: ${DATA_UPLOAD_MAX_NUMBER_FIELDS:-100000}
   DATASET_MAX_ARCHIVE_FILES: ${DATASET_MAX_ARCHIVE_FILES:-2000000}
@@ -23,7 +23,7 @@ x-django-env: &django-env
 
 x-django-volumes: &django-volumes
   - .:/app
-  - runtime_artifacts:/var/lib/model-qc
+  - runtime_artifacts:/var/lib/freeflow
 
 x-worker: &worker
   restart: unless-stopped
@@ -39,24 +39,24 @@ x-worker: &worker
 services:
   db:
     image: postgres:16-alpine
-    container_name: model_qc_db
+    container_name: freeflow_db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-model_qc}
-      POSTGRES_USER: ${POSTGRES_USER:-model_qc}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-model_qc_local}
+      POSTGRES_DB: ${POSTGRES_DB:-freeflow}
+      POSTGRES_USER: ${POSTGRES_USER:-freeflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-freeflow_local}
       PGDATA: /var/lib/postgresql/data
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-model_qc} -d ${POSTGRES_DB:-model_qc}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-freeflow} -d ${POSTGRES_DB:-freeflow}"]
       interval: 5s
       timeout: 3s
       retries: 20
 
   redis:
     image: redis:7-alpine
-    container_name: model_qc_redis
+    container_name: freeflow_redis
     restart: unless-stopped
     # Redis is only broker/result cache. Durable business data lives in PostgreSQL.
     command: ["redis-server", "--appendonly", "no"]
@@ -70,8 +70,8 @@ services:
     build:
       context: .
       target: platform-web
-    image: model-qc/platform-web:dev
-    container_name: model_qc_platform_web
+    image: freeflow/platform-web:dev
+    container_name: freeflow_platform_web
     restart: unless-stopped
     command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
     ports:
@@ -89,24 +89,24 @@ services:
     build:
       context: .
       target: platform-worker
-    image: model-qc/platform-worker:dev
-    container_name: model_qc_platform_worker
+    image: freeflow/platform-worker:dev
+    container_name: freeflow_platform_worker
     <<: *worker
 
   annotation-worker:
     build:
       context: .
       target: annotation-worker
-    image: model-qc/annotation-worker:dev
-    container_name: model_qc_annotation_worker
+    image: freeflow/annotation-worker:dev
+    container_name: freeflow_annotation_worker
     <<: *worker
 
   annotation-yolo26-detection:
     build:
       context: .
       dockerfile: annotations/runtime/Dockerfile
-    image: model-qc/annotation-yolo26:dev
-    container_name: model_qc_annotation_yolo26_detection
+    image: freeflow/annotation-yolo26:dev
+    container_name: freeflow_annotation_yolo26_detection
     entrypoint: ["python", "/app/annotations/runtime/server.py"]
     restart: unless-stopped
     environment:
@@ -124,8 +124,8 @@ services:
       start_period: 45s
 
   annotation-yolo26-pose:
-    image: model-qc/annotation-yolo26:dev
-    container_name: model_qc_annotation_yolo26_pose
+    image: freeflow/annotation-yolo26:dev
+    container_name: freeflow_annotation_yolo26_pose
     entrypoint: ["python", "/app/annotations/runtime/server.py"]
     restart: unless-stopped
     depends_on:
@@ -151,30 +151,30 @@ services:
     build:
       context: .
       target: quality-worker
-    image: model-qc/quality-worker:dev
-    container_name: model_qc_quality_worker
+    image: freeflow/quality-worker:dev
+    container_name: freeflow_quality_worker
     <<: *worker
 
   training-worker:
     build:
       context: .
       target: training-worker
-    image: model-qc/training-worker:dev
-    container_name: model_qc_training_worker
+    image: freeflow/training-worker:dev
+    container_name: freeflow_training_worker
     <<: *worker
 
   ai-rules-worker:
     build:
       context: .
       target: ai-rules-worker
-    image: model-qc/ai-rules-worker:dev
-    container_name: model_qc_ai_rules_worker
+    image: freeflow/ai-rules-worker:dev
+    container_name: freeflow_ai_rules_worker
     <<: *worker
 
 volumes:
   postgres_data:
     labels:
-      com.model-qc.reset-group: all-data
+      com.freeflow.reset-group: all-data
   runtime_artifacts:
     labels:
-      com.model-qc.reset-group: all-data
+      com.freeflow.reset-group: all-data

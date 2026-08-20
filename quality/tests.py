@@ -16,7 +16,7 @@ from .models import EvaluationDataset, EvaluationDatasetClass, EvaluationModel, 
 from .services import create_run, execute_run, freeze_ground_truth
 
 
-@override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix="model-qc-quality-test-"), DATASET_ROOT=tempfile.mkdtemp(prefix="model-qc-dataset-test-"))
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix="freeflow-quality-test-"), DATASET_ROOT=tempfile.mkdtemp(prefix="freeflow-dataset-test-"))
 class QualityFlowTests(TestCase):
     def setUp(self):
         users = get_user_model()
@@ -308,7 +308,7 @@ class QualityFlowTests(TestCase):
         response = self.client.get(reverse("project-list"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'class="brand" href="/"')
-        self.assertContains(response, "MODEL QC STUDIO")
+        self.assertContains(response, "Freeflow STUDIO")
 
     def test_regular_user_cannot_open_system_registry(self):
         self.client.force_login(self.owner)
