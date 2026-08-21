@@ -1,6 +1,6 @@
 # Freeflow repository handoff
 
-**Cập nhật:** 2026-08-20  
+**Cập nhật:** 2026-08-21
 **Nhánh:** `main`  
 **Mục đích:** tài liệu đầu vào duy nhất cho một phiên chat/agent mới tiếp tục phát triển repo.
 
@@ -170,24 +170,23 @@ Canvas full-screen có:
 
 - Select, BBox và Skeleton tools;
 - ảnh fit trong viewport cố định, giữ aspect ratio;
-- wheel zoom neo theo vị trí con trỏ, nút zoom/fit;
+- wheel zoom neo theo vị trí con trỏ, nút zoom/fit và Select dùng cursor mũi tên;
 - bbox label badge, kéo cả bbox và 8 resize handles;
-- skeleton edges, point name, màu riêng từng point;
-- click/kéo point để đổi tọa độ, nhập X/Y hoặc xóa riêng point;
-- object list, Project labels, attribute editor;
+- skeleton chỉ hiển thị edges + tên/màu point, không hiện badge label pose;
+- click/kéo point để đổi tọa độ, nhập X/Y, xóa point hoặc bổ sung lại point thiếu;
+- tạo pose bằng kéo vùng tạm như bbox: keypoint được layout bên trong vùng, không
+  lưu/render viền bbox sau khi tạo;
+- object list và attribute editor; không còn danh sách Project labels cố định;
 - undo/redo, dirty-state guard, save frame, xóa object;
-- frame slider, previous/next và keyboard shortcuts.
+- cụm điều hướng kiểu media player `previous · play/pause · next`, frame slider;
+- shortcut cá nhân lưu theo User: tools, save, undo/redo, zoom, fit, frame
+  previous/next, play/pause và delete; `Space` mặc định play/pause, Hand dùng để pan.
 
 API chính:
 
 - `GET /annotation/jobs/<job_id>/`
 - `GET /api/annotation/jobs/<job_id>/frames/<frame>/`
 - `POST /api/annotation/jobs/<job_id>/frames/<frame>/save/`
-
-**Yêu cầu mới nhất chưa triển khai:** thêm Pan/Hand interaction để con trỏ có thể
-kéo thả/pan frame đã zoom bên trong viewport. Nên làm theo kiểu CVAT: Hand tool
-hoặc giữ Space + drag; không được xung đột drag bbox/skeleton point. Cursor cần đổi
-`grab/grabbing`, pan bằng `viewport.scrollLeft/scrollTop`, và ghi vào docs/test.
 
 Các bước Canvas tiếp theo hợp lý: autosave, visibility/lock, copy/paste shape,
 polygon/mask, frame interpolation/tracking, configurable point visibility.
@@ -267,16 +266,18 @@ surface phẳng, form focus rõ, table/card/status/button thống nhất và the
 cho các template cũ còn style cục bộ. Component anatomy và responsive behavior
 tham khảo Ant Design/Bootstrap 5 (1440 canvas, 8px rhythm, responsive containers,
 vertical form item, table wrapper, button variants); visual skin theo Linear ×
-Vercel × Roboflow. Job Canvas có layout riêng nhưng dùng chung
+Vercel × Roboflow. Chrome UI đã được neutral hóa theo thang đen–xám–trắng;
+màu semantic và label/keypoint annotation được giữ để không mất ý nghĩa dữ liệu.
+Job Canvas có layout riêng nhưng dùng chung
 tokens để giữ mật độ của annotation tool. Tiếp tục ưu tiên workflow và interaction
 đúng trước khi cân nhắc SPA; không thêm framework chỉ để đổi giao diện.
 
 ## 9. Testing và trạng thái working tree
 
-Test Annotation gần nhất sau thay đổi skeleton/zoom:
+Test Annotation gần nhất sau thay đổi canvas pose/shortcut:
 
 ```text
-25 tests passed
+33 tests passed
 Django system check: 0 issues
 makemigrations --check: no changes detected
 ```
@@ -315,8 +316,8 @@ Prompt ngắn đề xuất:
 ```text
 Đọc toàn bộ control_plane/docs/SESSION_HANDOFF.md và các file nó trỏ tới.
 Kiểm tra git status, không làm mất thay đổi đang có. Tiếp tục yêu cầu gần nhất:
-thêm Hand/Space-drag để pan frame đã zoom trong Annotation Job Canvas, cập nhật
-docs, chạy Annotation tests và deploy/test bằng Docker.
+tiếp tục rà soát workflow Annotation Canvas theo CVAT, cập nhật docs, chạy
+Annotation tests và deploy/test bằng Docker.
 ```
 
 Tài liệu chi tiết hơn nằm tại:
